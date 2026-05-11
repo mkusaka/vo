@@ -1,1 +1,81 @@
 # vo
+
+`vo` is a local TanStack Start viewer for HTML, Markdown, and MDX files.
+
+Pass files, directories, or glob patterns, and `vo` starts a local browser UI
+with file navigation, a GitHub `t`-style filename finder, rough full-text
+search, Mermaid rendering, drag and drop, and live document watch.
+
+## Requirements
+
+- Node.js 22.18.0 or newer
+- pnpm
+
+The CLI entrypoint is `src/main.mts` and is run directly by Node.js type
+stripping. The browser shell is a TanStack Start app served by Vite.
+
+## Usage
+
+```sh
+pnpm install
+pnpm start README.md
+pnpm start -- docs --recursive --no-open
+node src/main.mts README.md notes.mdx index.html
+```
+
+Supported file types:
+
+- `.html`
+- `.htm`
+- `.md`
+- `.markdown`
+- `.mdx`
+
+Common options:
+
+```sh
+vo README.md                      # Open a file
+vo docs -R                        # Open supported files recursively
+vo 'docs/**/*.{md,mdx,html}'      # Open a glob pattern
+vo --port 7000 --no-open docs     # Use a specific port
+vo --no-watch docs                # Disable filesystem watch
+```
+
+## UI
+
+- File search uses a fuzzy path matcher for GitHub `t`-style navigation.
+- Text search scans extracted HTML/Markdown/MDX text.
+- Dropped `.html`, `.htm`, `.md`, `.markdown`, and `.mdx` files are added as
+  virtual files for the current session.
+- Mermaid code fences in Markdown/MDX are rendered inside the document iframe.
+
+## Session and Watch
+
+The first `vo` process starts a local Start/Vite server and writes a temporary
+session file. Later `vo` invocations add paths to that running session instead
+of starting another server.
+
+Watch is enabled by default. File and directory inputs are watched with
+`chokidar`; changes update the browser via server-sent events. Dragged files are
+virtual session files and are not watched on disk.
+
+Rendered documents are isolated in an iframe. Markdown and MDX rendering allows
+HTML because this is a local document viewer, not a sanitizer for untrusted
+content.
+
+## Development
+
+```sh
+pnpm install
+pnpm check
+node src/main.mts --no-open README.md
+```
+
+Useful project commands:
+
+```sh
+pnpm dev        # Start the TanStack Start app directly
+pnpm build      # Production build smoke test
+pnpm typecheck  # TypeScript check
+pnpm test       # Node test runner
+```
