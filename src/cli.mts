@@ -33,6 +33,7 @@ export async function run(argv: string[], cwd: string): Promise<void> {
   if (runningSession && await probeRunningSession(runningSession)) {
     const addResult = await addToRunningSession(runningSession, {
       cwd,
+      gitignore: options.gitignore,
       paths: options.paths,
       recursive: options.recursive,
       watch: options.watch,
@@ -57,6 +58,7 @@ export async function run(argv: string[], cwd: string): Promise<void> {
 
   const initialPaths = await collectFiles(options.paths, {
     cwd,
+    gitignore: options.gitignore,
     recursive: options.recursive,
   });
   const files = await loadSourceFiles(initialPaths, cwd);
@@ -73,6 +75,7 @@ export async function run(argv: string[], cwd: string): Promise<void> {
   if (options.watch) {
     await state.addPaths({
       cwd,
+      gitignore: options.gitignore,
       paths: options.paths,
       recursive: options.recursive,
       watch: true,
@@ -125,7 +128,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     host: DEFAULT_HOST,
     port: DEFAULT_PORT,
     open: true,
-    recursive: false,
+    recursive: true,
+    gitignore: true,
     watch: true,
     json: false,
     help: false,
@@ -162,6 +166,21 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
     if (arg === "-R" || arg === "--recursive") {
       options.recursive = true;
+      continue;
+    }
+
+    if (arg === "--no-recursive") {
+      options.recursive = false;
+      continue;
+    }
+
+    if (arg === "--gitignore") {
+      options.gitignore = true;
+      continue;
+    }
+
+    if (arg === "--no-gitignore") {
+      options.gitignore = false;
       continue;
     }
 
@@ -259,7 +278,10 @@ Usage:
 Options:
   -p, --port <port>      Port to bind (default: ${DEFAULT_PORT})
   -b, --bind <host>      Host to bind (default: ${DEFAULT_HOST})
-  -R, --recursive        Read directories recursively
+  -R, --recursive        Read directories recursively (default)
+      --no-recursive     Read only direct children of directories
+      --gitignore        Respect .gitignore rules (default)
+      --no-gitignore     Include files ignored by .gitignore
       --open             Open the viewer in a browser
       --no-open          Do not open a browser
       --watch            Watch loaded paths for changes (default)

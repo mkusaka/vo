@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
-import fg from "fast-glob";
+import {
+  globby,
+  isGitIgnored as createGitIgnoredMatcher,
+} from "globby";
 
 import type { SourceFile, SupportedKind } from "./types.mts";
 
@@ -44,17 +47,19 @@ export function isGlobPattern(value: string): boolean {
 
 export async function collectFiles(
   inputs: string[],
-  options: { cwd: string; recursive: boolean },
+  options: { cwd: string; recursive: boolean; gitignore?: boolean },
 ): Promise<string[]> {
   const targets = inputs.length > 0 ? inputs : ["."];
   const found = new Set<string>();
+  const respectGitignore = options.gitignore ?? true;
 
   for (const input of targets) {
     if (isGlobPattern(input)) {
-      const matches = await fg(input, {
+      const matches = await globby(input, {
         absolute: true,
         cwd: options.cwd,
         dot: false,
+        gitignore: respectGitignore,
         ignore: ["**/.git/**", "**/node_modules/**"],
         onlyFiles: true,
         unique: true,
@@ -82,10 +87,11 @@ export async function collectFiles(
       const pattern = options.recursive
         ? "**/*.{html,htm,md,markdown,mdx}"
         : "*.{html,htm,md,markdown,mdx}";
-      const matches = await fg(pattern, {
+      const matches = await globby(pattern, {
         absolute: true,
         cwd: resolved,
         dot: false,
+        gitignore: respectGitignore,
         ignore: ["**/.git/**", "**/node_modules/**"],
         onlyFiles: true,
         unique: true,
@@ -98,7 +104,11 @@ export async function collectFiles(
       continue;
     }
 
-    if (stat.isFile() && isSupportedFile(resolved)) {
+    if (
+      stat.isFile()
+      && isSupportedFile(resolved)
+      && !(await isGitIgnored(resolved, options.cwd, respectGitignore))
+    ) {
       found.add(resolved);
     }
   }
@@ -173,6 +183,23 @@ export function createVirtualSourceFile(input: {
     size: Buffer.byteLength(input.content),
     virtual: true,
   });
+}
+
+export async function isGitIgnored(
+  absolutePath: string,
+  cwd: string,
+  enabled: boolean,
+): Promise<boolean> {
+  if (!enabled) {
+    return false;
+  }
+
+  const isIgnored = await createGitIgnoredMatcher({
+    cwd,
+    ignore: ["**/.git/**", "**/node_modules/**"],
+  });
+
+  return isIgnored(path.resolve(absolutePath));
 }
 
 export function preprocessMdx(content: string): string {

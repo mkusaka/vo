@@ -6,6 +6,7 @@ import {
   collectFiles,
   createVirtualSourceFile,
   isGlobPattern,
+  isGitIgnored,
   isSupportedFile,
   loadSourceFile,
   loadSourceFiles,
@@ -14,6 +15,7 @@ import type { FileMetadata, SourceFile, SupportedKind, WatchEntry } from "./type
 
 export type AddPathsInput = {
   cwd: string;
+  gitignore: boolean;
   paths: string[];
   recursive: boolean;
   watch: boolean;
@@ -72,6 +74,7 @@ export class ViewerState {
   }> {
     const filePaths = await collectFiles(input.paths, {
       cwd: input.cwd,
+      gitignore: input.gitignore,
       recursive: input.recursive,
     });
     const files = await loadSourceFiles(filePaths, input.cwd);
@@ -177,10 +180,10 @@ export class ViewerState {
 
       watcher
         .on("add", (changedPath) => {
-          void this.reloadPath(changedPath, input.cwd);
+          void this.reloadPath(changedPath, input.cwd, input.gitignore);
         })
         .on("change", (changedPath) => {
-          void this.reloadPath(changedPath, input.cwd);
+          void this.reloadPath(changedPath, input.cwd, input.gitignore);
         })
         .on("unlink", (changedPath) => {
           this.removePath(path.resolve(changedPath));
@@ -196,7 +199,11 @@ export class ViewerState {
     }
   }
 
-  private async reloadPath(changedPath: string, cwd: string): Promise<void> {
+  private async reloadPath(
+    changedPath: string,
+    cwd: string,
+    gitignore: boolean,
+  ): Promise<void> {
     const absolutePath = path.resolve(changedPath);
 
     if (!isSupportedFile(absolutePath)) {
@@ -204,6 +211,10 @@ export class ViewerState {
     }
 
     try {
+      if (await isGitIgnored(absolutePath, cwd, gitignore)) {
+        return;
+      }
+
       const file = await loadSourceFile(absolutePath, cwd);
 
       if (!file) {

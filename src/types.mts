@@ -21,6 +21,7 @@ export type CliOptions = {
   port: number;
   open: boolean;
   recursive: boolean;
+  gitignore: boolean;
   watch: boolean;
   json: boolean;
 };

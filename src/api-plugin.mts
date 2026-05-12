@@ -230,6 +230,7 @@ function asDroppedFiles(value: unknown): DroppedFileInput[] {
 
 function asAddPathsInput(value: unknown): {
   cwd: string;
+  gitignore: boolean;
   paths: string[];
   recursive: boolean;
   watch: boolean;
@@ -241,6 +242,7 @@ function asAddPathsInput(value: unknown): {
   const input = value as {
     cwd?: unknown;
     paths?: unknown;
+    gitignore?: unknown;
     recursive?: unknown;
     watch?: unknown;
   };
@@ -249,6 +251,7 @@ function asAddPathsInput(value: unknown): {
     typeof input.cwd !== "string"
     || !Array.isArray(input.paths)
     || !input.paths.every((item) => typeof item === "string")
+    || typeof input.gitignore !== "boolean"
     || typeof input.recursive !== "boolean"
     || typeof input.watch !== "boolean"
   ) {
@@ -257,6 +260,7 @@ function asAddPathsInput(value: unknown): {
 
   return {
     cwd: input.cwd,
+    gitignore: input.gitignore,
     paths: input.paths,
     recursive: input.recursive,
     watch: input.watch,

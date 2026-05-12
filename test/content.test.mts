@@ -20,7 +20,7 @@ test("detectKind recognizes supported file types", () => {
   assert.equal(detectKind("style.css"), undefined);
 });
 
-test("collectFiles expands directories and filters unsupported files", async () => {
+test("collectFiles expands directories recursively by default and can stay flat", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "vo-content-"));
 
   try {
@@ -42,6 +42,47 @@ test("collectFiles expands directories and filters unsupported files", async () 
       "notes.md",
       "page.mdx",
     ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("collectFiles respects gitignore by default and can include ignored files", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "vo-gitignore-"));
+
+  try {
+    await writeFile(path.join(directory, ".gitignore"), "ignored.md\nnested/\n");
+    await writeFile(path.join(directory, "visible.md"), "# Visible");
+    await writeFile(path.join(directory, "ignored.md"), "# Ignored");
+    await mkdir(path.join(directory, "nested"));
+    await writeFile(path.join(directory, "nested", "hidden.mdx"), "# Hidden");
+
+    const respected = await collectFiles(["."], {
+      cwd: directory,
+      gitignore: true,
+      recursive: true,
+    });
+    assert.deepEqual(respected.map((file) => path.basename(file)), [
+      "visible.md",
+    ]);
+
+    const included = await collectFiles(["."], {
+      cwd: directory,
+      gitignore: false,
+      recursive: true,
+    });
+    assert.deepEqual(included.map((file) => path.basename(file)).sort(), [
+      "hidden.mdx",
+      "ignored.md",
+      "visible.md",
+    ]);
+
+    const explicitIgnored = await collectFiles(["ignored.md"], {
+      cwd: directory,
+      gitignore: true,
+      recursive: true,
+    });
+    assert.deepEqual(explicitIgnored, []);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

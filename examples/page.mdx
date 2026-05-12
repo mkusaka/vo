@@ -1,0 +1,22 @@
+import { Callout } from "./components";
+
+export const meta = {
+  title: "MDX Sample",
+};
+
+# MDX Sample
+
+MDX module lines are ignored for viewing, and JSX components are shown as text
+instead of being executed.
+
+<Callout tone="info">This JSX is rendered as escaped text.</Callout>
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant vo
+  User->>vo: Drop MDX
+  vo-->>User: Render preview
+```
+
+Try searching for `escaped text`.

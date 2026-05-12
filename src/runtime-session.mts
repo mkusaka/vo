@@ -79,6 +79,7 @@ export async function addToRunningSession(
   session: RunningSession,
   input: {
     cwd: string;
+    gitignore: boolean;
     paths: string[];
     recursive: boolean;
     watch: boolean;

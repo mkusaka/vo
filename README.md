@@ -19,7 +19,7 @@ stripping. The browser shell is a TanStack Start app served by Vite.
 ```sh
 pnpm install
 pnpm start README.md
-pnpm start -- docs --recursive --no-open
+pnpm start -- examples --no-open
 node src/main.mts README.md notes.mdx index.html
 ```
 
@@ -35,11 +35,17 @@ Common options:
 
 ```sh
 vo README.md                      # Open a file
-vo docs -R                        # Open supported files recursively
+vo docs                           # Open supported files recursively
 vo 'docs/**/*.{md,mdx,html}'      # Open a glob pattern
 vo --port 7000 --no-open docs     # Use a specific port
+vo --no-recursive docs            # Only direct children
+vo --no-gitignore docs            # Include gitignored files
 vo --no-watch docs                # Disable filesystem watch
 ```
+
+Directory inputs are recursive by default and `.gitignore` is respected by
+default. Globbing is powered by `globby`; use `--no-gitignore` when you
+intentionally want ignored files to appear.
 
 ## UI
 
@@ -48,6 +54,12 @@ vo --no-watch docs                # Disable filesystem watch
 - Dropped `.html`, `.htm`, `.md`, `.markdown`, and `.mdx` files are added as
   virtual files for the current session.
 - Mermaid code fences in Markdown/MDX are rendered inside the document iframe.
+
+Sample files are available under `examples/`:
+
+- `examples/markdown.md`
+- `examples/page.mdx`
+- `examples/index.html`
 
 ## Session and Watch
 
