@@ -97,6 +97,7 @@ test("loadSourceFiles extracts titles and searchable text", async () => {
 
     const [file] = await loadSourceFiles([markdown], directory);
     assert.equal(file?.title, "Guide");
+    assert.equal(file?.baselineContent, "---\ntags: docs\n---\n# Guide\nFind this phrase.");
     assert.match(file?.searchableText ?? "", /Find this phrase/u);
     assert.match(file?.searchableText ?? "", /tags docs/u);
   } finally {

@@ -63,6 +63,28 @@ async function handleRequest(
     return true;
   }
 
+  if (url.pathname.startsWith("/api/source/") && req.method === "GET") {
+    const id = decodeURIComponent(url.pathname.slice("/api/source/".length));
+    const file = getViewerState().getFile(id);
+
+    if (!file) {
+      sendJson(res, 404, { error: "file not found" });
+      return true;
+    }
+
+    sendJson(res, 200, {
+      baselineContent: file.baselineContent,
+      content: file.content,
+      id: file.id,
+      kind: file.kind,
+      mtimeMs: file.mtimeMs,
+      name: file.name,
+      relativePath: file.relativePath,
+      title: file.title,
+    });
+    return true;
+  }
+
   if (url.pathname === "/api/drop" && req.method === "POST") {
     const dropped = asDroppedFiles(await readJson(req));
     sendJson(res, 200, getViewerState().addDroppedFiles(dropped));

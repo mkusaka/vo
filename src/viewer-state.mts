@@ -118,18 +118,28 @@ export class ViewerState {
   }
 
   private upsertFile(file: SourceFile): void {
+    let nextFile = file;
+
     if (file.absolutePath) {
       const existingId = this.pathToId.get(file.absolutePath);
+      const existingFile = existingId ? this.filesById.get(existingId) : undefined;
 
       if (existingId && existingId !== file.id) {
         this.filesById.delete(existingId);
       }
 
+      if (existingFile) {
+        nextFile = {
+          ...file,
+          baselineContent: existingFile.baselineContent,
+        };
+      }
+
       this.pathToId.set(file.absolutePath, file.id);
     }
 
-    this.filesById.set(file.id, file);
-    this.broadcast("file", { file: toMetadata(file) });
+    this.filesById.set(nextFile.id, nextFile);
+    this.broadcast("file", { file: toMetadata(nextFile) });
   }
 
   private removePath(absolutePath: string): void {

@@ -49,8 +49,15 @@ intentionally want ignored files to appear.
 
 ## UI
 
-- File search uses a fuzzy path matcher for GitHub `t`-style navigation.
+- The file navigator is rendered with `@pierre/trees`.
+- File search filters the tree with a fuzzy path matcher for GitHub `t`-style
+  navigation.
 - Text search scans extracted HTML/Markdown/MDX text.
+- `Render` shows the generated document iframe.
+- `Annotate` shows the whole source file with `@pierre/diffs` and an inline
+  comment preview that can be moved by clicking any line.
+- `Diff` shows the current file against the content captured when it was first
+  loaded into the session, using `@pierre/diffs`.
 - Dropped `.html`, `.htm`, `.md`, `.markdown`, and `.mdx` files are added as
   virtual files for the current session.
 - Mermaid code fences in Markdown/MDX are rendered inside the document iframe.

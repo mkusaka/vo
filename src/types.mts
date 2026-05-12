@@ -10,6 +10,7 @@ export type SourceFile = {
   size: number;
   mtimeMs: number;
   title: string;
+  baselineContent: string;
   content: string;
   searchableText: string;
   virtual: boolean;

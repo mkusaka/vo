@@ -301,6 +301,7 @@ function createSourceFile(input: {
     size: input.size,
     mtimeMs: input.mtimeMs,
     title: extractTitle(input.content, input.kind, input.name),
+    baselineContent: input.content,
     content: input.content,
     searchableText: toSearchableText(input.content, input.kind),
     virtual: input.virtual,

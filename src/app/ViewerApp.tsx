@@ -1,14 +1,30 @@
+import { FileTree, useFileTree } from "@pierre/trees/react";
 import {
+  Suspense,
+  lazy,
   useEffect,
   useMemo,
   useRef,
   useState,
   type DragEvent,
   type KeyboardEvent,
+  type RefObject,
 } from "react";
 
-import { searchFiles, type SearchMode } from "../search.mts";
+import {
+  searchFiles,
+  type SearchMode,
+  type SearchResult,
+} from "../search.mts";
 import type { FileMetadata } from "../types.mts";
+import type { SourcePayload } from "./source-types.mts";
+import {
+  directoryPrefixes,
+  fileIdByTreePath,
+  toTreePaths,
+} from "./tree-data.mts";
+
+const DiffsPanel = lazy(() => import("./DiffsPanel.tsx"));
 
 type FilesPayload = {
   files: FileMetadata[];
@@ -19,12 +35,16 @@ type DocumentPayload = {
   id: string;
 };
 
+type ViewMode = "render" | "annotate" | "diff";
+
 export function ViewerApp() {
   const [files, setFiles] = useState<FileMetadata[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [html, setHtml] = useState("");
+  const [source, setSource] = useState<SourcePayload>();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("filename");
+  const [viewMode, setViewMode] = useState<ViewMode>("render");
   const [status, setStatus] = useState("ready");
   const [isDragging, setDragging] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -70,8 +90,17 @@ export function ViewerApp() {
     }
   }, [files, selectedId]);
 
+  const results = useMemo(
+    () => searchFiles(files, query, mode),
+    [files, mode, query],
+  );
+  const selected = files.find((file) => file.id === selectedId);
+  const selectedRefreshKey = selected
+    ? `${selected.id}:${selected.mtimeMs}`
+    : undefined;
+
   useEffect(() => {
-    if (!selectedId) {
+    if (!selectedId || !selectedRefreshKey) {
       setHtml("");
       return;
     }
@@ -98,13 +127,37 @@ export function ViewerApp() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [selectedId, selectedRefreshKey]);
 
-  const results = useMemo(
-    () => searchFiles(files, query, mode),
-    [files, mode, query],
-  );
-  const selected = files.find((file) => file.id === selectedId);
+  useEffect(() => {
+    if (!selectedId || !selectedRefreshKey) {
+      setSource(undefined);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch(`/api/source/${encodeURIComponent(selectedId)}`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`source request failed: ${response.status}`);
+        }
+
+        return response.json() as Promise<SourcePayload>;
+      })
+      .then((payload) => {
+        if (!cancelled) {
+          setSource(payload);
+        }
+      })
+      .catch((error: unknown) => {
+        setStatus(formatError(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, selectedRefreshKey]);
 
   return (
     <main
@@ -162,51 +215,53 @@ export function ViewerApp() {
           />
         </div>
 
-        <div className="file-list" role="listbox" aria-label="Files">
-          {results.map((result) => (
-            <button
-              aria-selected={result.file.id === selectedId}
-              className={result.file.id === selectedId ? "file-row selected" : "file-row"}
-              key={result.file.id}
-              onClick={() => setSelectedId(result.file.id)}
-              type="button"
-            >
-              <span className="file-title">{result.file.title}</span>
-              <span className="file-path">{result.file.relativePath}</span>
-              {result.snippet ? <span className="file-snippet">{result.snippet}</span> : null}
-            </button>
-          ))}
+        <div className="tree-panel">
+          <TreePanel
+            onSelectFile={setSelectedId}
+            results={results}
+            selectedPath={selected?.relativePath}
+          />
+          <TextHits
+            mode={mode}
+            onSelectFile={setSelectedId}
+            query={query}
+            results={results}
+            selectedId={selectedId}
+          />
         </div>
       </aside>
 
       <section className="preview">
         <header className="preview-header">
-          <div>
+          <div className="preview-title">
             <h1>{selected?.title ?? "vo"}</h1>
             <p>{selected?.relativePath ?? "No document loaded"}</p>
           </div>
-          {selected ? (
-            <dl>
-              <div>
-                <dt>Type</dt>
-                <dd>{selected.kind}</dd>
-              </div>
-              <div>
-                <dt>Size</dt>
-                <dd>{formatBytes(selected.size)}</dd>
-              </div>
-            </dl>
-          ) : null}
+          <div className="preview-actions">
+            <ViewModeTabs mode={viewMode} onChange={setViewMode} />
+            {selected ? (
+              <dl>
+                <div>
+                  <dt>Type</dt>
+                  <dd>{selected.kind}</dd>
+                </div>
+                <div>
+                  <dt>Size</dt>
+                  <dd>{formatBytes(selected.size)}</dd>
+                </div>
+              </dl>
+            ) : null}
+          </div>
         </header>
 
-        <div className="document-frame">
-          {html ? (
-            <iframe
-              key={selectedId}
-              referrerPolicy="no-referrer"
-              sandbox="allow-scripts"
-              srcDoc={html}
-              title={selected?.title ?? "Document"}
+        <div className={viewMode === "render" ? "document-frame" : "document-frame code-frame"}>
+          {selected ? (
+            <DocumentBody
+              html={html}
+              selected={selected}
+              selectedId={selectedId}
+              source={source}
+              viewMode={viewMode}
             />
           ) : (
             <div className="empty-state">Drop HTML, Markdown, or MDX files</div>
@@ -217,9 +272,162 @@ export function ViewerApp() {
   );
 }
 
+function TreePanel({
+  onSelectFile,
+  results,
+  selectedPath,
+}: {
+  onSelectFile: (id: string) => void;
+  results: SearchResult[];
+  selectedPath?: string;
+}) {
+  const paths = useMemo(
+    () => toTreePaths(results.map((result) => result.file)),
+    [results],
+  );
+  const normalizedSelectedPath = selectedPath?.replaceAll("\\", "/");
+  const pathsKey = paths.join("\0");
+  const pathToIdRef = useRef(fileIdByTreePath(results.map((result) => result.file)));
+  pathToIdRef.current = fileIdByTreePath(results.map((result) => result.file));
+
+  const { model } = useFileTree({
+    flattenEmptyDirectories: true,
+    initialExpansion: "open",
+    onSelectionChange(selectedPaths) {
+      const treePath = selectedPaths.at(-1);
+      const id = treePath ? pathToIdRef.current.get(treePath) : undefined;
+
+      if (id) {
+        onSelectFile(id);
+      }
+    },
+    paths,
+  });
+
+  useEffect(() => {
+    model.resetPaths(paths, {
+      initialExpandedPaths: directoryPrefixes(paths),
+    });
+  }, [model, paths, pathsKey]);
+
+  useEffect(() => {
+    for (const treePath of model.getSelectedPaths()) {
+      model.getItem(treePath)?.deselect();
+    }
+
+    if (!normalizedSelectedPath || !paths.includes(normalizedSelectedPath)) {
+      return;
+    }
+
+    model.getItem(normalizedSelectedPath)?.select();
+    model.focusPath(normalizedSelectedPath);
+  }, [model, normalizedSelectedPath, paths, pathsKey]);
+
+  return (
+    <FileTree
+      className="tree-view"
+      model={model}
+      style={{ height: "100%" }}
+    />
+  );
+}
+
+function TextHits({
+  mode,
+  onSelectFile,
+  query,
+  results,
+  selectedId,
+}: {
+  mode: SearchMode;
+  onSelectFile: (id: string) => void;
+  query: string;
+  results: SearchResult[];
+  selectedId?: string;
+}) {
+  if (mode !== "text" || !query.trim()) {
+    return null;
+  }
+
+  return (
+    <div className="text-hits" role="listbox" aria-label="Text search results">
+      {results.slice(0, 8).map((result) => (
+        <button
+          aria-selected={result.file.id === selectedId}
+          className={result.file.id === selectedId ? "text-hit selected" : "text-hit"}
+          key={result.file.id}
+          onClick={() => onSelectFile(result.file.id)}
+          type="button"
+        >
+          <span>{result.file.title}</span>
+          <small>{result.snippet}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ViewModeTabs({
+  mode,
+  onChange,
+}: {
+  mode: ViewMode;
+  onChange: (mode: ViewMode) => void;
+}) {
+  return (
+    <div className="view-tabs" role="tablist" aria-label="Display mode">
+      {(["render", "annotate", "diff"] as const).map((nextMode) => (
+        <button
+          aria-selected={mode === nextMode}
+          className={mode === nextMode ? "active" : ""}
+          key={nextMode}
+          onClick={() => onChange(nextMode)}
+          type="button"
+        >
+          {viewModeLabel(nextMode)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DocumentBody({
+  html,
+  selected,
+  selectedId,
+  source,
+  viewMode,
+}: {
+  html: string;
+  selected: FileMetadata;
+  selectedId?: string;
+  source?: SourcePayload;
+  viewMode: ViewMode;
+}) {
+  if (viewMode === "render") {
+    return html ? (
+      <iframe
+        key={selectedId}
+        referrerPolicy="no-referrer"
+        sandbox="allow-scripts"
+        srcDoc={html}
+        title={selected.title}
+      />
+    ) : (
+      <div className="empty-state">Loading</div>
+    );
+  }
+
+  return (
+    <Suspense fallback={<div className="empty-state">Loading</div>}>
+      <DiffsPanel source={source} viewMode={viewMode} />
+    </Suspense>
+  );
+}
+
 function handleShortcut(
   event: KeyboardEvent<HTMLElement>,
-  inputRef: React.RefObject<HTMLInputElement | null>,
+  inputRef: RefObject<HTMLInputElement | null>,
   setMode: (mode: SearchMode) => void,
 ): void {
   const target = event.target as HTMLElement | null;
@@ -280,6 +488,17 @@ async function handleDrop(
   const result = await response.json() as FilesPayload;
   setFiles(result.files);
   setStatus(`added ${files.length}`);
+}
+
+function viewModeLabel(mode: ViewMode): string {
+  switch (mode) {
+    case "annotate":
+      return "Annotate";
+    case "diff":
+      return "Diff";
+    case "render":
+      return "Render";
+  }
 }
 
 function formatBytes(size: number): string {
