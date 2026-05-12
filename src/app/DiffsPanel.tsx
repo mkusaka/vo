@@ -5,9 +5,19 @@ import {
   type FileContents,
   type FileDiffMetadata,
   type LineAnnotation,
+  type SelectedLineRange,
 } from "@pierre/diffs";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  createDiffCommentAnnotations,
+  createFileCommentAnnotations,
+  targetFromDiffRange,
+  targetFromFileRange,
+  type CommentAnnotationMetadata,
+  type CommentTarget,
+  type LocalComment,
+} from "./comment-annotations.mts";
 import type { SourcePayload } from "./source-types.mts";
 
 type DiffsPanelProps = {
@@ -15,27 +25,25 @@ type DiffsPanelProps = {
   viewMode: "annotate" | "diff";
 };
 
-type AnnotationMetadata = {
-  body: string;
-  lineNumber: number;
-  path: string;
-};
-
 export default function DiffsPanel({
   source,
   viewMode,
 }: DiffsPanelProps) {
-  const [annotationLine, setAnnotationLine] = useState(1);
+  const [comments, setComments] = useState<LocalComment[]>([]);
+  const [draftBody, setDraftBody] = useState("");
+  const [draftTarget, setDraftTarget] = useState<CommentTarget>();
 
   useEffect(() => {
-    setAnnotationLine(1);
+    setComments([]);
+    setDraftBody("");
+    setDraftTarget(undefined);
   }, [source?.id]);
 
-  const lineCount = useMemo(
-    () => countLines(source?.content ?? ""),
-    [source?.content],
-  );
-  const activeLine = Math.min(annotationLine, lineCount);
+  useEffect(() => {
+    setDraftBody("");
+    setDraftTarget(undefined);
+  }, [viewMode]);
+
   const currentFile = useMemo(
     () => source ? toFileContents(source, "current") : undefined,
     [source],
@@ -48,37 +56,62 @@ export default function DiffsPanel({
     () => createFileDiff(baselineFile, currentFile),
     [baselineFile, currentFile],
   );
-  const lineAnnotations = useMemo<LineAnnotation<AnnotationMetadata>[]>(
+  const lineAnnotations = useMemo<LineAnnotation<CommentAnnotationMetadata>[]>(
     () => source
-      ? [{
-        lineNumber: activeLine,
-        metadata: {
-          body: `Preview comment for line ${activeLine}`,
-          lineNumber: activeLine,
-          path: source.relativePath,
-        },
-      }]
+      ? createFileCommentAnnotations(source.relativePath, comments, draftTarget)
       : [],
-    [activeLine, source],
+    [comments, draftTarget, source],
   );
-  const diffLineAnnotations = useMemo<DiffLineAnnotation<AnnotationMetadata>[]>(
+  const diffLineAnnotations = useMemo<DiffLineAnnotation<CommentAnnotationMetadata>[]>(
     () => source
-      ? [{
-        lineNumber: activeLine,
-        metadata: {
-          body: `Preview comment for line ${activeLine}`,
-          lineNumber: activeLine,
-          path: source.relativePath,
-        },
-        side: "additions",
-      }]
+      ? createDiffCommentAnnotations(source.relativePath, comments, draftTarget)
       : [],
-    [activeLine, source],
+    [comments, draftTarget, source],
   );
 
   if (!source || !currentFile) {
     return <div className="empty-state">Loading</div>;
   }
+
+  const openFileDraft = (range: SelectedLineRange) => {
+    setDraftBody("");
+    setDraftTarget(targetFromFileRange(range));
+  };
+  const openDiffDraft = (range: SelectedLineRange) => {
+    setDraftBody("");
+    setDraftTarget(targetFromDiffRange(range));
+  };
+  const cancelDraft = () => {
+    setDraftBody("");
+    setDraftTarget(undefined);
+  };
+  const submitDraft = () => {
+    const body = draftBody.trim();
+
+    if (!body || draftTarget == null) {
+      return;
+    }
+
+    setComments((current) => [
+      ...current,
+      {
+        body,
+        id: `${source.id}:${current.length + 1}`,
+        lineNumber: draftTarget.lineNumber,
+        path: source.relativePath,
+        side: draftTarget.side,
+      },
+    ]);
+    cancelDraft();
+  };
+  const renderCommentAnnotation = (
+    annotation: LineAnnotation<CommentAnnotationMetadata> | DiffLineAnnotation<CommentAnnotationMetadata>,
+  ) => renderAnnotation(annotation, {
+    draftBody,
+    onCancel: cancelDraft,
+    onDraftBodyChange: setDraftBody,
+    onSubmit: submitDraft,
+  });
 
   if (viewMode === "diff") {
     if (!fileDiff || fileDiff.hunks.length === 0) {
@@ -86,60 +119,109 @@ export default function DiffsPanel({
     }
 
     return (
-      <FileDiff<AnnotationMetadata>
+      <FileDiff<CommentAnnotationMetadata>
         className="diffs-view"
         disableWorkerPool
         fileDiff={fileDiff}
         lineAnnotations={diffLineAnnotations}
         options={{
           diffStyle: "unified",
+          enableGutterUtility: true,
           lineDiffType: "word",
           lineHoverHighlight: "both",
-          onLineClick: ({ annotationSide, lineNumber }) => {
-            if (annotationSide === "additions") {
-              setAnnotationLine(lineNumber);
-            }
-          },
-          onLineNumberClick: ({ annotationSide, lineNumber }) => {
-            if (annotationSide === "additions") {
-              setAnnotationLine(lineNumber);
-            }
-          },
+          onGutterUtilityClick: openDiffDraft,
           overflow: "wrap",
-          theme: "github-light",
+          theme: "pierre-light",
           themeType: "light",
         }}
-        renderAnnotation={renderAnnotation}
+        renderAnnotation={renderCommentAnnotation}
       />
     );
   }
 
   return (
-    <CodeFile<AnnotationMetadata>
+    <CodeFile<CommentAnnotationMetadata>
       className="diffs-view"
       disableWorkerPool
       file={currentFile}
       lineAnnotations={lineAnnotations}
       options={{
+        enableGutterUtility: true,
         lineHoverHighlight: "both",
-        onLineClick: ({ lineNumber }) => setAnnotationLine(lineNumber),
-        onLineNumberClick: ({ lineNumber }) => setAnnotationLine(lineNumber),
+        onGutterUtilityClick: openFileDraft,
         overflow: "wrap",
-        theme: "github-light",
+        theme: "pierre-light",
         themeType: "light",
       }}
-      renderAnnotation={renderAnnotation}
+      renderAnnotation={renderCommentAnnotation}
     />
   );
 }
 
-function renderAnnotation(annotation: LineAnnotation<AnnotationMetadata> | DiffLineAnnotation<AnnotationMetadata>) {
+type RenderAnnotationActions = {
+  draftBody: string;
+  onCancel(): void;
+  onDraftBodyChange(value: string): void;
+  onSubmit(): void;
+};
+
+function renderAnnotation(
+  annotation: LineAnnotation<CommentAnnotationMetadata> | DiffLineAnnotation<CommentAnnotationMetadata>,
+  actions: RenderAnnotationActions,
+) {
+  const target = describeAnnotationTarget(annotation.metadata);
+
+  if (annotation.metadata.kind === "comment") {
+    return (
+      <div className="annotation-card">
+        <div className="annotation-heading">
+          <strong>Comment</strong>
+          <span>{target}</span>
+        </div>
+        <p>{annotation.metadata.body}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="annotation-preview">
-      <strong>Annotation</strong>
-      <span>{annotation.metadata.body}</span>
+    <div className="annotation-card annotation-composer">
+      <div className="annotation-heading">
+        <strong>New comment</strong>
+        <span>{target}</span>
+      </div>
+      <textarea
+        aria-label={`Comment for ${target}`}
+        onChange={(event) => actions.onDraftBodyChange(event.currentTarget.value)}
+        placeholder="Add a comment..."
+        rows={3}
+        value={actions.draftBody}
+      />
+      <div className="annotation-actions">
+        <button
+          disabled={!actions.draftBody.trim()}
+          onClick={actions.onSubmit}
+          type="button"
+        >
+          Comment
+        </button>
+        <button onClick={actions.onCancel} type="button">
+          Cancel
+        </button>
+      </div>
     </div>
   );
+}
+
+function describeAnnotationTarget(metadata: CommentAnnotationMetadata): string {
+  if (metadata.side === "additions") {
+    return `Added line ${metadata.lineNumber}`;
+  }
+
+  if (metadata.side === "deletions") {
+    return `Deleted line ${metadata.lineNumber}`;
+  }
+
+  return `Line ${metadata.lineNumber}`;
 }
 
 function createFileDiff(
@@ -170,12 +252,4 @@ function toFileContents(
     contents,
     name: source.relativePath,
   };
-}
-
-function countLines(value: string): number {
-  if (!value) {
-    return 1;
-  }
-
-  return value.split(/\r\n|\r|\n/u).length;
 }
