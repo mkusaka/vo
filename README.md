@@ -54,11 +54,14 @@ intentionally want ignored files to appear.
   navigation.
 - Text search scans extracted HTML/Markdown/MDX text.
 - `Render` shows the generated document iframe.
-- `Annotate` shows the whole source file with `@pierre/diffs`; hover a line and
-  use the gutter `+` button to open a local comment draft.
+- `Annotate` shows the whole source file with `@pierre/diffs`; use the gutter
+  `+`, drag-select lines, or click a token to start a review thread.
 - `Diff` shows the current file against the content captured when it was first
-  loaded into the session, using `@pierre/diffs` with the same gutter comment
-  draft flow.
+  loaded into the session, using `@pierre/diffs` with char-level word changes.
+- Review threads support replies, resolve, comment drafts, and suggested
+  replacements for a line, multiple lines, or a token range.
+- The viewer chrome and `@pierre/trees` / `@pierre/diffs` panes can be switched
+  between light and dark mode from the preview toolbar.
 - Dropped `.html`, `.htm`, `.md`, `.markdown`, and `.mdx` files are added as
   virtual files for the current session.
 - Mermaid code fences in Markdown/MDX are rendered inside the document iframe.

@@ -10,6 +10,7 @@
   --vo-accent-soft: #e6f4ff;
   --vo-green: #16a994;
   --vo-red: #ff2e3f;
+  --vo-drop-bg: rgb(230 244 255 / 88%);
   color: var(--vo-text);
   background: var(--vo-bg);
   color-scheme: light;
@@ -42,7 +43,28 @@ textarea {
   display: grid;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   height: 100vh;
+  color: var(--vo-text);
   background: var(--vo-bg);
+}
+
+.viewer.theme-light {
+  color-scheme: light;
+}
+
+.viewer.theme-dark {
+  --vo-bg: #101214;
+  --vo-panel: #171a1d;
+  --vo-panel-muted: #202428;
+  --vo-border: #2e353b;
+  --vo-border-strong: #3b454c;
+  --vo-text: #f4f6f8;
+  --vo-muted: #9aa4ae;
+  --vo-accent: #62b5ff;
+  --vo-accent-soft: #16324a;
+  --vo-green: #58d68d;
+  --vo-red: #ff6b6b;
+  --vo-drop-bg: rgb(22 50 74 / 88%);
+  color-scheme: dark;
 }
 
 .viewer.is-dragging::after {
@@ -56,7 +78,7 @@ textarea {
   font-weight: 700;
   content: "Drop files";
   border: 2px solid var(--vo-accent);
-  background: rgb(230 244 255 / 88%);
+  background: var(--vo-drop-bg);
 }
 
 .sidebar {
@@ -162,7 +184,7 @@ dt {
   display: block;
   min-height: 0;
   color: var(--vo-text);
-  color-scheme: light;
+  color-scheme: inherit;
   --trees-bg-override: var(--vo-bg);
   --trees-bg-muted-override: var(--vo-panel-muted);
   --trees-fg-override: var(--vo-text);
@@ -255,7 +277,7 @@ dt {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 16px;
+  gap: 10px;
 }
 
 .preview-header h1 {
@@ -321,6 +343,22 @@ dt {
   box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
 }
 
+.theme-toggle {
+  min-width: 56px;
+  min-height: 38px;
+  padding: 0 12px;
+  color: var(--vo-text);
+  border: 1px solid var(--vo-border);
+  border-radius: 8px;
+  background: var(--vo-panel-muted);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--vo-border-strong);
+  background: var(--vo-panel);
+}
+
 .document-frame {
   min-height: 0;
   padding: 14px;
@@ -342,7 +380,7 @@ dt {
 .diffs-view {
   display: block;
   min-height: 100%;
-  color-scheme: light;
+  color-scheme: inherit;
   border: 1px solid var(--vo-border);
   border-radius: 8px;
   overflow: hidden;
@@ -352,6 +390,8 @@ dt {
   --diffs-line-height: 20px;
   --diffs-light-bg: var(--vo-panel);
   --diffs-light: var(--vo-text);
+  --diffs-dark-bg: var(--vo-panel);
+  --diffs-dark: var(--vo-text);
   --diffs-bg-context-override: var(--vo-panel-muted);
   --diffs-bg-context-gutter-override: var(--vo-bg);
   --diffs-bg-separator-override: var(--vo-panel-muted);
@@ -371,6 +411,51 @@ dt {
   border-left: 3px solid var(--vo-accent);
   border-radius: 6px;
   background: var(--vo-panel);
+}
+
+.annotation-suggestion {
+  border-left-color: var(--vo-green);
+}
+
+.annotation-thread-header {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.annotation-thread-header strong,
+.annotation-reply strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.annotation-thread-header span,
+.annotation-reply span {
+  color: var(--vo-muted);
+  font-size: 11px;
+}
+
+.annotation-avatar {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  border-radius: 50%;
+  background: var(--vo-accent);
+}
+
+.annotation-target {
+  max-width: 160px;
+  overflow: hidden;
+  color: var(--vo-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .annotation-heading {
@@ -393,6 +478,79 @@ dt {
   color: var(--vo-muted);
 }
 
+.annotation-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border: 1px solid var(--vo-border);
+  border-radius: 6px;
+  background: var(--vo-panel-muted);
+}
+
+.annotation-mode-tabs button {
+  min-height: 28px;
+  color: var(--vo-muted);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.annotation-mode-tabs button.active {
+  color: var(--vo-text);
+  background: var(--vo-panel);
+}
+
+.annotation-selection {
+  max-height: 128px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  color: var(--vo-text);
+  border: 1px solid var(--vo-border);
+  border-radius: 6px;
+  background: var(--vo-panel-muted);
+  font-family: var(--diffs-font-family);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.annotation-suggestion-block {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--vo-border);
+  border-radius: 6px;
+  background: var(--vo-panel-muted);
+}
+
+.suggestion-diff {
+  display: grid;
+  gap: 4px;
+}
+
+.suggestion-diff pre {
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  font-family: var(--diffs-font-family);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.suggestion-diff pre[data-kind="old"] {
+  border: 1px solid rgb(255 46 63 / 26%);
+  background: rgb(255 46 63 / 10%);
+}
+
+.suggestion-diff pre[data-kind="new"] {
+  border: 1px solid rgb(22 169 148 / 28%);
+  background: rgb(22 169 148 / 12%);
+}
+
 .annotation-card textarea {
   width: 100%;
   min-height: 72px;
@@ -403,6 +561,11 @@ dt {
   outline: none;
   padding: 8px;
   background: var(--vo-panel);
+}
+
+.annotation-suggestion-input {
+  font-family: var(--diffs-font-family);
+  font-size: 12px;
 }
 
 .annotation-card textarea:focus {
@@ -425,7 +588,14 @@ dt {
   cursor: pointer;
 }
 
-.annotation-actions button:first-child {
+.annotation-composer > .annotation-actions button:first-child,
+.annotation-reply-composer .annotation-actions button:first-child {
+  color: #ffffff;
+  border-color: var(--vo-accent);
+  background: var(--vo-accent);
+}
+
+.annotation-actions button.active {
   color: #ffffff;
   border-color: var(--vo-accent);
   background: var(--vo-accent);
@@ -434,6 +604,23 @@ dt {
 .annotation-actions button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.annotation-reply {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--vo-border);
+}
+
+.annotation-reply p {
+  margin-top: 4px;
+}
+
+.annotation-reply-composer {
+  display: grid;
+  gap: 8px;
 }
 
 .empty-state {

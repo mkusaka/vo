@@ -4,26 +4,43 @@ import test from "node:test";
 import {
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
+  selectedTextForTarget,
   targetFromDiffRange,
+  targetFromDiffToken,
   targetFromFileRange,
-  type LocalComment,
+  targetFromFileToken,
+  type ReviewThread,
 } from "../src/app/comment-annotations.mts";
 
-test("targetFromFileRange opens a file comment on the clicked start line", () => {
+test("targetFromFileRange keeps a multiline file selection", () => {
   assert.deepEqual(targetFromFileRange({
     end: 5,
     start: 3,
   }), {
+    endLineNumber: 5,
     lineNumber: 3,
   });
 });
 
-test("targetFromDiffRange keeps the diff side from the gutter click", () => {
+test("targetFromFileRange normalizes reversed line ranges", () => {
+  assert.deepEqual(targetFromFileRange({
+    end: 3,
+    start: 5,
+  }), {
+    endLineNumber: 5,
+    lineNumber: 3,
+  });
+});
+
+test("targetFromDiffRange keeps diff side and end side", () => {
   assert.deepEqual(targetFromDiffRange({
     end: 12,
+    endSide: "additions",
     side: "deletions",
     start: 10,
   }), {
+    endLineNumber: 12,
+    endSide: "additions",
     lineNumber: 10,
     side: "deletions",
   });
@@ -34,101 +51,154 @@ test("targetFromDiffRange defaults to additions when the range has no side", () 
     end: 4,
     start: 4,
   }), {
+    endLineNumber: 4,
+    endSide: undefined,
     lineNumber: 4,
     side: "additions",
   });
 });
 
-test("createFileCommentAnnotations includes saved comments and the active draft", () => {
-  const comments: LocalComment[] = [
-    comment("readme.md", 2, "Looks good"),
-    comment("readme.md", 3, "Diff only", "additions"),
-    comment("other.md", 2, "Ignore this"),
-  ];
+test("token targets preserve character-level context", () => {
+  const tokenElement = {} as HTMLElement;
 
-  assert.deepEqual(createFileCommentAnnotations("readme.md", comments, {
-    lineNumber: 4,
-  }), [
-    {
-      lineNumber: 2,
-      metadata: {
-        body: "Looks good",
-        id: "readme.md:2",
-        kind: "comment",
-        lineNumber: 2,
-        path: "readme.md",
-      },
-    },
-    {
-      lineNumber: 4,
-      metadata: {
-        kind: "draft",
-        lineNumber: 4,
-        path: "readme.md",
-      },
-    },
-  ]);
+  assert.deepEqual(targetFromFileToken({
+    lineCharEnd: 12,
+    lineCharStart: 7,
+    lineNumber: 2,
+    tokenElement,
+    tokenText: "title",
+    type: "token",
+  }), {
+    charEnd: 12,
+    charStart: 7,
+    endLineNumber: 2,
+    lineNumber: 2,
+    selectedText: "title",
+  });
+
+  assert.deepEqual(targetFromDiffToken({
+    lineCharEnd: 8,
+    lineCharStart: 2,
+    lineNumber: 9,
+    side: "additions",
+    tokenElement,
+    tokenText: "value",
+    type: "token",
+  }), {
+    charEnd: 8,
+    charStart: 2,
+    endLineNumber: 9,
+    lineNumber: 9,
+    selectedText: "value",
+    side: "additions",
+  });
 });
 
-test("createDiffCommentAnnotations includes side-aware comments and draft", () => {
-  const comments: LocalComment[] = [
-    comment("readme.md", 2, "File only"),
-    comment("readme.md", 3, "Add this", "additions"),
-    comment("readme.md", 5, "Remove this", "deletions"),
+test("selectedTextForTarget returns explicit token text first", () => {
+  assert.equal(selectedTextForTarget("one\ntwo\nthree", {
+    endLineNumber: 2,
+    lineNumber: 2,
+    selectedText: "tw",
+  }), "tw");
+});
+
+test("selectedTextForTarget extracts multiline content", () => {
+  assert.equal(selectedTextForTarget("one\ntwo\nthree\nfour", {
+    endLineNumber: 3,
+    lineNumber: 2,
+  }), "two\nthree");
+});
+
+test("createFileCommentAnnotations includes saved threads and the active draft", () => {
+  const threads: ReviewThread[] = [
+    reviewThread("readme.md", 2, "Looks good"),
+    reviewThread("readme.md", 3, "Diff only", "additions"),
+    reviewThread("readme.md", 4, "Resolved", undefined, true),
+    reviewThread("other.md", 2, "Ignore this"),
   ];
 
-  assert.deepEqual(createDiffCommentAnnotations("readme.md", comments, {
+  const annotations = createFileCommentAnnotations("readme.md", threads, {
+    endLineNumber: 6,
+    lineNumber: 5,
+    selectedText: "draft range",
+  });
+
+  assert.equal(annotations.length, 2);
+  assert.equal(annotations[0]?.lineNumber, 2);
+  assert.equal(annotations[0]?.metadata.kind, "thread");
+  assert.equal(annotations[0]?.metadata.thread?.body, "Looks good");
+  assert.equal(annotations[1]?.lineNumber, 5);
+  assert.deepEqual(annotations[1]?.metadata, {
+    charEnd: undefined,
+    charStart: undefined,
+    endLineNumber: 6,
+    kind: "draft",
+    lineNumber: 5,
+    path: "readme.md",
+    selectedText: "draft range",
+  });
+});
+
+test("createDiffCommentAnnotations includes side-aware threads and draft", () => {
+  const threads: ReviewThread[] = [
+    reviewThread("readme.md", 2, "File only"),
+    reviewThread("readme.md", 3, "Add this", "additions"),
+    {
+      ...reviewThread("readme.md", 5, "Replace this", "deletions"),
+      endLineNumber: 6,
+      kind: "suggestion",
+      selectedText: "old value",
+      suggestion: {
+        replacement: "new value",
+        status: "open",
+      },
+    },
+  ];
+
+  const annotations = createDiffCommentAnnotations("readme.md", threads, {
+    endLineNumber: 8,
     lineNumber: 8,
     side: "additions",
-  }), [
-    {
-      lineNumber: 3,
-      metadata: {
-        body: "Add this",
-        id: "readme.md:3:additions",
-        kind: "comment",
-        lineNumber: 3,
-        path: "readme.md",
-        side: "additions",
-      },
-      side: "additions",
-    },
-    {
-      lineNumber: 5,
-      metadata: {
-        body: "Remove this",
-        id: "readme.md:5:deletions",
-        kind: "comment",
-        lineNumber: 5,
-        path: "readme.md",
-        side: "deletions",
-      },
-      side: "deletions",
-    },
-    {
+  });
+
+  assert.equal(annotations.length, 3);
+  assert.equal(annotations[0]?.side, "additions");
+  assert.equal(annotations[0]?.metadata.thread?.body, "Add this");
+  assert.equal(annotations[1]?.side, "deletions");
+  assert.equal(annotations[1]?.metadata.thread?.kind, "suggestion");
+  assert.deepEqual(annotations[2], {
+    lineNumber: 8,
+    metadata: {
+      charEnd: undefined,
+      charStart: undefined,
+      endLineNumber: 8,
+      endSide: undefined,
+      kind: "draft",
       lineNumber: 8,
-      metadata: {
-        kind: "draft",
-        lineNumber: 8,
-        path: "readme.md",
-        side: "additions",
-      },
+      path: "readme.md",
+      selectedText: undefined,
       side: "additions",
     },
-  ]);
+    side: "additions",
+  });
 });
 
-function comment(
+function reviewThread(
   path: string,
   lineNumber: number,
   body: string,
-  side?: LocalComment["side"],
-): LocalComment {
+  side?: ReviewThread["side"],
+  resolved = false,
+): ReviewThread {
   return {
     body,
+    endLineNumber: lineNumber,
     id: side ? `${path}:${lineNumber}:${side}` : `${path}:${lineNumber}`,
+    kind: "comment",
     lineNumber,
     path,
+    replies: [],
+    resolved,
     side,
   };
 }

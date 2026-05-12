@@ -36,6 +36,7 @@ type DocumentPayload = {
 };
 
 type ViewMode = "render" | "annotate" | "diff";
+type ThemeMode = "dark" | "light";
 
 export function ViewerApp() {
   const [files, setFiles] = useState<FileMetadata[]>([]);
@@ -45,6 +46,7 @@ export function ViewerApp() {
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<SearchMode>("filename");
   const [viewMode, setViewMode] = useState<ViewMode>("render");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [status, setStatus] = useState("ready");
   const [isDragging, setDragging] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -98,6 +100,11 @@ export function ViewerApp() {
   const selectedRefreshKey = selected
     ? `${selected.id}:${selected.mtimeMs}`
     : undefined;
+  const viewerClassName = [
+    "viewer",
+    `theme-${themeMode}`,
+    isDragging ? "is-dragging" : "",
+  ].filter(Boolean).join(" ");
 
   useEffect(() => {
     if (!selectedId || !selectedRefreshKey) {
@@ -161,7 +168,7 @@ export function ViewerApp() {
 
   return (
     <main
-      className={isDragging ? "viewer is-dragging" : "viewer"}
+      className={viewerClassName}
       onDragLeave={(event) => {
         if (event.currentTarget === event.target) {
           setDragging(false);
@@ -238,6 +245,7 @@ export function ViewerApp() {
             <p>{selected?.relativePath ?? "No document loaded"}</p>
           </div>
           <div className="preview-actions">
+            <ThemeToggle mode={themeMode} onChange={setThemeMode} />
             <ViewModeTabs mode={viewMode} onChange={setViewMode} />
             {selected ? (
               <dl>
@@ -261,6 +269,7 @@ export function ViewerApp() {
               selected={selected}
               selectedId={selectedId}
               source={source}
+              themeMode={themeMode}
               viewMode={viewMode}
             />
           ) : (
@@ -367,6 +376,27 @@ function TextHits({
   );
 }
 
+function ThemeToggle({
+  mode,
+  onChange,
+}: {
+  mode: ThemeMode;
+  onChange: (mode: ThemeMode) => void;
+}) {
+  const nextMode = mode === "dark" ? "light" : "dark";
+
+  return (
+    <button
+      aria-label={`Switch to ${nextMode} mode`}
+      className="theme-toggle"
+      onClick={() => onChange(nextMode)}
+      type="button"
+    >
+      {mode === "dark" ? "Light" : "Dark"}
+    </button>
+  );
+}
+
 function ViewModeTabs({
   mode,
   onChange,
@@ -396,12 +426,14 @@ function DocumentBody({
   selected,
   selectedId,
   source,
+  themeMode,
   viewMode,
 }: {
   html: string;
   selected: FileMetadata;
   selectedId?: string;
   source?: SourcePayload;
+  themeMode: ThemeMode;
   viewMode: ViewMode;
 }) {
   if (viewMode === "render") {
@@ -420,7 +452,7 @@ function DocumentBody({
 
   return (
     <Suspense fallback={<div className="empty-state">Loading</div>}>
-      <DiffsPanel source={source} viewMode={viewMode} />
+      <DiffsPanel source={source} themeMode={themeMode} viewMode={viewMode} />
     </Suspense>
   );
 }
