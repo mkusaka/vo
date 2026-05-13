@@ -19,11 +19,21 @@ export type CommentTarget = {
 
 export type ReviewKind = "comment" | "suggestion";
 
-export type SuggestionStatus = "open" | "committed" | "dismissed";
+export type SuggestionStatus = "applied" | "open";
+
+export type ReviewSuggestion = {
+  appliedAfterContent?: string;
+  appliedBeforeContent?: string;
+  originalText?: string;
+  replacement: string;
+  status: SuggestionStatus;
+};
 
 export type ReviewReply = {
   body: string;
   id: string;
+  kind: ReviewKind;
+  suggestion?: ReviewSuggestion;
 };
 
 export type ReviewThread = {
@@ -40,10 +50,7 @@ export type ReviewThread = {
   resolved: boolean;
   selectedText?: string;
   side?: AnnotationSide;
-  suggestion?: {
-    replacement: string;
-    status: SuggestionStatus;
-  };
+  suggestion?: ReviewSuggestion;
 };
 
 export type SuggestionBlock = {
@@ -230,7 +237,7 @@ export function selectedTextForTarget(
   contents: string,
   target: CommentTarget,
 ): string {
-  if (target.selectedText != null) {
+  if (target.selectedText != null && target.selectedText.length > 0) {
     return target.selectedText;
   }
 
@@ -238,7 +245,74 @@ export function selectedTextForTarget(
   const start = Math.max(target.lineNumber - 1, 0);
   const end = Math.max(target.endLineNumber - 1, start);
 
+  if (
+    target.charStart != null
+    && target.charEnd != null
+    && start === end
+  ) {
+    return (lines[start] ?? "").slice(target.charStart, target.charEnd);
+  }
+
   return lines.slice(start, end + 1).join("\n");
+}
+
+export function targetFromThread(thread: ReviewThread): CommentTarget {
+  return {
+    charEnd: thread.charEnd,
+    charStart: thread.charStart,
+    endLineNumber: thread.endLineNumber,
+    endSide: thread.endSide,
+    lineNumber: thread.lineNumber,
+    selectedText: thread.selectedText,
+    side: thread.side,
+  };
+}
+
+export function applySuggestionToContent(
+  contents: string,
+  target: CommentTarget,
+  replacement: string,
+): {
+  content: string;
+  originalText: string;
+} {
+  const hadFinalNewline = /\r\n|\r|\n$/u.test(contents);
+  const lines = linesWithoutFinalEmpty(contents);
+  const start = Math.max(target.lineNumber - 1, 0);
+  const end = Math.max(target.endLineNumber - 1, start);
+  const normalizedReplacement = normalizeLineEndings(replacement);
+
+  if (
+    target.charStart != null
+    && target.charEnd != null
+    && start === end
+  ) {
+    const line = lines[start] ?? "";
+    const charStart = Math.max(0, target.charStart);
+    const charEnd = Math.max(charStart, target.charEnd);
+    const nextLines = [...lines];
+    const originalText = line.slice(charStart, charEnd);
+
+    nextLines[start] = `${line.slice(0, charStart)}${normalizedReplacement}${line.slice(charEnd)}`;
+
+    return {
+      content: joinLines(nextLines, hadFinalNewline),
+      originalText,
+    };
+  }
+
+  const nextLines = [...lines];
+  const replacementLines = normalizedReplacement.length === 0
+    ? []
+    : normalizedReplacement.split("\n");
+  const originalText = nextLines.slice(start, end + 1).join("\n");
+
+  nextLines.splice(start, end - start + 1, ...replacementLines);
+
+  return {
+    content: joinLines(nextLines, hadFinalNewline),
+    originalText,
+  };
 }
 
 function threadMetadata(
@@ -323,4 +397,20 @@ function isClosingFence(line: string | undefined, fence: "```" | "~~~"): boolean
 
 function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n|\r|\n/gu, "\n");
+}
+
+function linesWithoutFinalEmpty(contents: string): string[] {
+  const lines = normalizeLineEndings(contents).split("\n");
+
+  if (lines.length > 1 && lines.at(-1) === "") {
+    lines.pop();
+  }
+
+  return lines;
+}
+
+function joinLines(lines: readonly string[], hadFinalNewline: boolean): string {
+  const content = lines.join("\n");
+
+  return hadFinalNewline ? `${content}\n` : content;
 }

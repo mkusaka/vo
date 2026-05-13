@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   appendSuggestionBlock,
+  applySuggestionToContent,
   bodyWithoutSuggestionBlock,
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
@@ -106,6 +107,15 @@ test("selectedTextForTarget returns explicit token text first", () => {
   }), "tw");
 });
 
+test("selectedTextForTarget extracts character ranges when token text is absent", () => {
+  assert.equal(selectedTextForTarget("alpha beta", {
+    charEnd: 10,
+    charStart: 6,
+    endLineNumber: 1,
+    lineNumber: 1,
+  }), "beta");
+});
+
 test("selectedTextForTarget extracts multiline content", () => {
   assert.equal(selectedTextForTarget("one\ntwo\nthree\nfour", {
     endLineNumber: 3,
@@ -167,6 +177,47 @@ test("bodyWithoutSuggestionBlock keeps regular fenced code blocks", () => {
   assert.equal(
     bodyWithoutSuggestionBlock(body),
     "```ts\nconst value = true;\n```",
+  );
+});
+
+test("applySuggestionToContent replaces whole line ranges and preserves final newline", () => {
+  assert.deepEqual(
+    applySuggestionToContent("one\ntwo\nthree\n", {
+      endLineNumber: 2,
+      lineNumber: 2,
+    }, "TWO"),
+    {
+      content: "one\nTWO\nthree\n",
+      originalText: "two",
+    },
+  );
+});
+
+test("applySuggestionToContent supports multiline replacements", () => {
+  assert.deepEqual(
+    applySuggestionToContent("one\ntwo\nthree", {
+      endLineNumber: 3,
+      lineNumber: 2,
+    }, "TWO\nTHREE"),
+    {
+      content: "one\nTWO\nTHREE",
+      originalText: "two\nthree",
+    },
+  );
+});
+
+test("applySuggestionToContent supports character-level replacements", () => {
+  assert.deepEqual(
+    applySuggestionToContent("alpha beta", {
+      charEnd: 10,
+      charStart: 6,
+      endLineNumber: 1,
+      lineNumber: 1,
+    }, "gamma"),
+    {
+      content: "alpha gamma",
+      originalText: "beta",
+    },
   );
 });
 

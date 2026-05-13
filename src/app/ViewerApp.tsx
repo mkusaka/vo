@@ -35,6 +35,12 @@ type DocumentPayload = {
   id: string;
 };
 
+type SourceUpdatePayload = {
+  files: FileMetadata[];
+  html: string;
+  source: SourcePayload;
+};
+
 type ViewMode = "render" | "annotate" | "diff";
 type ThemeMode = "dark" | "light";
 
@@ -105,6 +111,31 @@ export function ViewerApp() {
     `theme-${themeMode}`,
     isDragging ? "is-dragging" : "",
   ].filter(Boolean).join(" ");
+  const updateSelectedSource = async (
+    id: string,
+    content: string,
+  ): Promise<SourcePayload> => {
+    const response = await fetch(`/api/source/${encodeURIComponent(id)}`, {
+      body: JSON.stringify({ content }),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "PATCH",
+    });
+
+    if (!response.ok) {
+      throw new Error(`source update failed: ${response.status}`);
+    }
+
+    const payload = await response.json() as SourceUpdatePayload;
+
+    setFiles(payload.files);
+    setHtml(payload.html);
+    setSource(payload.source);
+    setStatus("suggestion applied");
+
+    return payload.source;
+  };
 
   useEffect(() => {
     if (!selectedId || !selectedRefreshKey) {
@@ -242,7 +273,11 @@ export function ViewerApp() {
         <header className="preview-header">
           <div className="preview-title">
             <h1>{selected?.title ?? "vo"}</h1>
-            <p>{selected?.relativePath ?? "No document loaded"}</p>
+            <FilePathButton
+              onCopied={() => setStatus("path copied")}
+              onCopyFailed={(error) => setStatus(formatError(error))}
+              path={selected?.relativePath}
+            />
           </div>
           <div className="preview-actions">
             <ThemeToggle mode={themeMode} onChange={setThemeMode} />
@@ -270,6 +305,7 @@ export function ViewerApp() {
               selectedId={selectedId}
               source={source}
               themeMode={themeMode}
+              onSourceChange={updateSelectedSource}
               viewMode={viewMode}
             />
           ) : (
@@ -421,8 +457,43 @@ function ViewModeTabs({
   );
 }
 
+function FilePathButton({
+  onCopied,
+  onCopyFailed,
+  path,
+}: {
+  onCopied(): void;
+  onCopyFailed(error: unknown): void;
+  path?: string;
+}) {
+  if (!path) {
+    return <p>No document loaded</p>;
+  }
+
+  return (
+    <button
+      className="file-path-button"
+      onClick={() => {
+        if (!navigator.clipboard) {
+          onCopyFailed(new Error("clipboard unavailable"));
+          return;
+        }
+
+        void navigator.clipboard.writeText(path)
+          .then(onCopied)
+          .catch(onCopyFailed);
+      }}
+      title="Copy file path"
+      type="button"
+    >
+      {path}
+    </button>
+  );
+}
+
 function DocumentBody({
   html,
+  onSourceChange,
   selected,
   selectedId,
   source,
@@ -430,6 +501,7 @@ function DocumentBody({
   viewMode,
 }: {
   html: string;
+  onSourceChange(id: string, content: string): Promise<SourcePayload>;
   selected: FileMetadata;
   selectedId?: string;
   source?: SourcePayload;
@@ -452,7 +524,12 @@ function DocumentBody({
 
   return (
     <Suspense fallback={<div className="empty-state">Loading</div>}>
-      <DiffsPanel source={source} themeMode={themeMode} viewMode={viewMode} />
+      <DiffsPanel
+        onSourceChange={onSourceChange}
+        source={source}
+        themeMode={themeMode}
+        viewMode={viewMode}
+      />
     </Suspense>
   );
 }

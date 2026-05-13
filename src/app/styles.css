@@ -106,6 +106,7 @@ textarea {
 .file-count,
 .status,
 .preview-header p,
+.file-path-button,
 .file-path,
 .file-snippet,
 dt {
@@ -189,6 +190,9 @@ dt {
   --trees-bg-muted-override: var(--vo-panel-muted);
   --trees-fg-override: var(--vo-text);
   --trees-fg-muted-override: var(--vo-muted);
+  --trees-input-bg-override: var(--vo-panel);
+  --trees-search-bg-override: var(--vo-panel);
+  --trees-search-fg-override: var(--vo-text);
   --trees-selected-bg-override: var(--vo-accent-soft);
   --trees-selected-fg-override: var(--vo-text);
   --trees-selected-focused-border-color-override: var(--vo-accent);
@@ -297,6 +301,27 @@ dt {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-path-button {
+  display: block;
+  max-width: min(68vw, 960px);
+  min-height: 20px;
+  margin: 5px 0 0;
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  cursor: copy;
+}
+
+.file-path-button:hover {
+  color: var(--vo-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .preview-header dl {
@@ -587,7 +612,8 @@ dt {
 }
 
 .annotation-composer > .annotation-actions button:nth-child(2),
-.annotation-reply-composer .annotation-actions button:first-child {
+.annotation-reply-composer .annotation-actions button:nth-child(2),
+.annotation-suggestion-block .annotation-actions button {
   color: #ffffff;
   border-color: var(--vo-accent);
   background: var(--vo-accent);
@@ -613,6 +639,15 @@ dt {
 }
 
 .annotation-reply p {
+  margin-top: 4px;
+}
+
+.annotation-reply-body {
+  display: grid;
+  gap: 4px;
+}
+
+.annotation-reply .annotation-suggestion-block {
   margin-top: 4px;
 }
 
@@ -663,7 +698,8 @@ dt {
   }
 
   .preview-header h1,
-  .preview-header p {
+  .preview-header p,
+  .file-path-button {
     max-width: calc(100vw - 40px);
   }
 }

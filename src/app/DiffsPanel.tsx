@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   appendSuggestionBlock,
+  applySuggestionToContent,
   bodyWithoutSuggestionBlock,
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
@@ -22,20 +23,24 @@ import {
   targetFromDiffToken,
   targetFromFileRange,
   targetFromFileToken,
+  targetFromThread,
   type CommentAnnotationMetadata,
   type CommentTarget,
+  type ReviewSuggestion,
   type ReviewThread,
   type SuggestionStatus,
 } from "./comment-annotations.mts";
 import type { SourcePayload } from "./source-types.mts";
 
 type DiffsPanelProps = {
+  onSourceChange(id: string, content: string): Promise<SourcePayload>;
   source?: SourcePayload;
   themeMode: "dark" | "light";
   viewMode: "annotate" | "diff";
 };
 
 export default function DiffsPanel({
+  onSourceChange,
   source,
   themeMode,
   viewMode,
@@ -43,12 +48,14 @@ export default function DiffsPanel({
   const [threads, setThreads] = useState<ReviewThread[]>([]);
   const [draftBody, setDraftBody] = useState("");
   const [draftTarget, setDraftTarget] = useState<CommentTarget>();
+  const [pendingSuggestionId, setPendingSuggestionId] = useState<string>();
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
 
   useEffect(() => {
     setThreads([]);
     resetDraft();
+    setPendingSuggestionId(undefined);
     setReplyDrafts({});
     setSelectedLines(null);
   }, [source?.id]);
@@ -162,30 +169,34 @@ export default function DiffsPanel({
       suggestionTextForTarget(activeSource, draftTarget),
     ));
   };
-  const replaceSuggestion = (id: string, replacement: string) => {
-    updateThread(id, (thread) => ({
-      ...thread,
-      body: replaceSuggestionBlock(thread.body, replacement),
-      kind: "suggestion",
-      suggestion: {
-        replacement,
-        status: thread.suggestion?.status ?? "open",
-      },
+  const replaceSuggestion = (
+    threadId: string,
+    replyId: string | undefined,
+    replacement: string,
+  ) => {
+    updateSuggestion(threadId, replyId, (suggestion) => ({
+      ...suggestion,
+      replacement,
+      status: suggestion.status === "applied" ? "open" : suggestion.status,
     }));
-  };
-  const setSuggestionStatus = (id: string, status: SuggestionStatus) => {
-    updateThread(id, (thread) => thread.suggestion
-      ? {
-        ...thread,
-        suggestion: {
-          ...thread.suggestion,
-          status,
-        },
-      }
-      : thread);
   };
   const setThreadResolved = (id: string, resolved: boolean) => {
     updateThread(id, (thread) => ({ ...thread, resolved }));
+  };
+  const insertReplySuggestion = (id: string) => {
+    const thread = threads.find((candidate) => candidate.id === id);
+
+    if (!thread) {
+      return;
+    }
+
+    setReplyDrafts((current) => ({
+      ...current,
+      [id]: appendSuggestionBlock(
+        current[id] ?? "",
+        suggestionTextForTarget(activeSource, targetFromThread(thread)),
+      ),
+    }));
   };
   const addReply = (id: string) => {
     const body = replyDrafts[id]?.trim();
@@ -194,6 +205,8 @@ export default function DiffsPanel({
       return;
     }
 
+    const suggestion = parseSuggestionBlock(body);
+
     updateThread(id, (thread) => ({
       ...thread,
       replies: [
@@ -201,6 +214,13 @@ export default function DiffsPanel({
         {
           body,
           id: `${id}:reply:${thread.replies.length + 1}`,
+          kind: suggestion == null ? "comment" : "suggestion",
+          suggestion: suggestion == null
+            ? undefined
+            : {
+              replacement: suggestion.replacement,
+              status: "open",
+            },
         },
       ],
     }));
@@ -209,13 +229,92 @@ export default function DiffsPanel({
       [id]: "",
     }));
   };
+  const applyReviewSuggestion = async (
+    threadId: string,
+    replyId?: string,
+  ) => {
+    const thread = threads.find((candidate) => candidate.id === threadId);
+    const suggestion = thread ? suggestionFor(thread, replyId) : undefined;
+
+    if (
+      !thread
+      || !suggestion
+      || !canApplySuggestion(thread)
+      || pendingSuggestionId
+    ) {
+      return;
+    }
+
+    const pendingId = suggestionActionId(threadId, replyId);
+    const beforeContent = activeSource.content;
+    const applied = applySuggestionToContent(
+      beforeContent,
+      targetFromThread(thread),
+      suggestion.replacement,
+    );
+
+    setPendingSuggestionId(pendingId);
+
+    try {
+      const updatedSource = await onSourceChange(activeSource.id, applied.content);
+
+      updateSuggestion(threadId, replyId, (current) => ({
+        ...current,
+        appliedAfterContent: updatedSource.content,
+        appliedBeforeContent: beforeContent,
+        originalText: applied.originalText,
+        status: "applied",
+      }));
+    } finally {
+      setPendingSuggestionId(undefined);
+    }
+  };
+  const revertReviewSuggestion = async (
+    threadId: string,
+    replyId?: string,
+  ) => {
+    const thread = threads.find((candidate) => candidate.id === threadId);
+    const suggestion = thread ? suggestionFor(thread, replyId) : undefined;
+
+    if (!thread || !suggestion || pendingSuggestionId) {
+      return;
+    }
+
+    const pendingId = suggestionActionId(threadId, replyId);
+    const originalText = suggestion.originalText
+      ?? thread.selectedText
+      ?? suggestionTextForTarget(activeSource, targetFromThread(thread));
+    const nextContent = suggestion.appliedBeforeContent != null
+      && suggestion.appliedAfterContent === activeSource.content
+      ? suggestion.appliedBeforeContent
+      : applySuggestionToContent(
+        activeSource.content,
+        targetFromThread(thread),
+        originalText,
+      ).content;
+
+    setPendingSuggestionId(pendingId);
+
+    try {
+      await onSourceChange(activeSource.id, nextContent);
+
+      updateSuggestion(threadId, replyId, (current) => ({
+        replacement: current.replacement,
+        status: "open",
+      }));
+    } finally {
+      setPendingSuggestionId(undefined);
+    }
+  };
   const renderCommentAnnotation = (
     annotation: LineAnnotation<CommentAnnotationMetadata> | DiffLineAnnotation<CommentAnnotationMetadata>,
   ) => renderAnnotation(annotation, {
     draftBody,
+    pendingSuggestionId,
     onCancel: cancelDraft,
     onDraftBodyChange: setDraftBody,
     onInsertSuggestion: insertSuggestion,
+    onInsertReplySuggestion: insertReplySuggestion,
     onReply: addReply,
     onReplyBodyChange(id, value) {
       setReplyDrafts((current) => ({
@@ -224,8 +323,9 @@ export default function DiffsPanel({
       }));
     },
     onResolve: setThreadResolved,
+    onSuggestionApply: applyReviewSuggestion,
     onSuggestionChange: replaceSuggestion,
-    onSuggestionStatus: setSuggestionStatus,
+    onSuggestionRevert: revertReviewSuggestion,
     onSubmit: submitDraft,
     replyDrafts,
   });
@@ -307,19 +407,65 @@ export default function DiffsPanel({
       thread.id === id ? update(thread) : thread
     )));
   }
+
+  function updateSuggestion(
+    threadId: string,
+    replyId: string | undefined,
+    update: (suggestion: ReviewSuggestion) => ReviewSuggestion,
+  ) {
+    updateThread(threadId, (thread) => {
+      if (replyId == null) {
+        const suggestion = update(thread.suggestion ?? {
+          replacement: "",
+          status: "open",
+        });
+
+        return {
+          ...thread,
+          body: replaceSuggestionBlock(thread.body, suggestion.replacement),
+          kind: "suggestion",
+          suggestion,
+        };
+      }
+
+      return {
+        ...thread,
+        replies: thread.replies.map((reply) => {
+          if (reply.id !== replyId) {
+            return reply;
+          }
+
+          const suggestion = update(reply.suggestion ?? {
+            replacement: "",
+            status: "open",
+          });
+
+          return {
+            ...reply,
+            body: replaceSuggestionBlock(reply.body, suggestion.replacement),
+            kind: "suggestion",
+            suggestion,
+          };
+        }),
+      };
+    });
+  }
 }
 
 type RenderAnnotationActions = {
   draftBody: string;
+  pendingSuggestionId?: string;
   onCancel(): void;
   onDraftBodyChange(value: string): void;
   onInsertSuggestion(): void;
+  onInsertReplySuggestion(id: string): void;
   onReply(id: string): void;
   onReplyBodyChange(id: string, value: string): void;
   onResolve(id: string, resolved: boolean): void;
   onSubmit(): void;
-  onSuggestionChange(id: string, replacement: string): void;
-  onSuggestionStatus(id: string, status: SuggestionStatus): void;
+  onSuggestionApply(threadId: string, replyId?: string): void;
+  onSuggestionChange(threadId: string, replyId: string | undefined, replacement: string): void;
+  onSuggestionRevert(threadId: string, replyId?: string): void;
   replyDrafts: Record<string, string>;
 };
 
@@ -332,6 +478,8 @@ function renderAnnotation(
   if (annotation.metadata.kind === "thread" && annotation.metadata.thread) {
     const { thread } = annotation.metadata;
     const commentBody = bodyWithoutSuggestionBlock(thread.body);
+    const replyDraft = actions.replyDrafts[thread.id] ?? "";
+    const replyHasSuggestion = parseSuggestionBlock(replyDraft) != null;
 
     return (
       <div className={`annotation-card annotation-${thread.kind}`}>
@@ -347,35 +495,67 @@ function renderAnnotation(
         {commentBody ? <p>{commentBody}</p> : null}
         <SelectedTextPreview metadata={annotation.metadata} />
         <SuggestionBlock
-          onChange={(replacement) => actions.onSuggestionChange(thread.id, replacement)}
-          onStatusChange={(status) => actions.onSuggestionStatus(thread.id, status)}
-          thread={thread}
+          canApply={canApplySuggestion(thread)}
+          isPending={actions.pendingSuggestionId === suggestionActionId(thread.id)}
+          onApply={() => {
+            void actions.onSuggestionApply(thread.id);
+          }}
+          onChange={(replacement) => actions.onSuggestionChange(thread.id, undefined, replacement)}
+          onRevert={() => {
+            void actions.onSuggestionRevert(thread.id);
+          }}
+          originalText={thread.selectedText ?? ""}
+          suggestion={thread.suggestion}
         />
 
-        {thread.replies.map((reply, index) => (
-          <div className="annotation-reply" key={reply.id}>
-            <div className="annotation-avatar">
-              {index === 0 ? "A" : "M"}
+        {thread.replies.map((reply, index) => {
+          const replyBody = bodyWithoutSuggestionBlock(reply.body);
+
+          return (
+            <div className="annotation-reply" key={reply.id}>
+              <div className="annotation-avatar">
+                {index === 0 ? "A" : "M"}
+              </div>
+              <div className="annotation-reply-body">
+                <strong>{index === 0 ? "Amadeus" : "Mark"}</strong>
+                <span>now</span>
+                {replyBody ? <p>{replyBody}</p> : null}
+                <SuggestionBlock
+                  canApply={canApplySuggestion(thread)}
+                  isPending={actions.pendingSuggestionId === suggestionActionId(thread.id, reply.id)}
+                  onApply={() => {
+                    void actions.onSuggestionApply(thread.id, reply.id);
+                  }}
+                  onChange={(replacement) => actions.onSuggestionChange(thread.id, reply.id, replacement)}
+                  onRevert={() => {
+                    void actions.onSuggestionRevert(thread.id, reply.id);
+                  }}
+                  originalText={thread.selectedText ?? ""}
+                  suggestion={reply.suggestion}
+                />
+              </div>
             </div>
-            <div>
-              <strong>{index === 0 ? "Amadeus" : "Mark"}</strong>
-              <span>now</span>
-              <p>{reply.body}</p>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div className="annotation-reply-composer">
           <textarea
             aria-label={`Reply to ${target}`}
             onChange={(event) => actions.onReplyBodyChange(thread.id, event.currentTarget.value)}
             placeholder="Add reply..."
-            rows={2}
-            value={actions.replyDrafts[thread.id] ?? ""}
+            rows={replyHasSuggestion ? 7 : 2}
+            value={replyDraft}
           />
           <div className="annotation-actions">
             <button
-              disabled={!actions.replyDrafts[thread.id]?.trim()}
+              disabled={replyHasSuggestion}
+              onClick={() => actions.onInsertReplySuggestion(thread.id)}
+              type="button"
+            >
+              Make suggestion
+            </button>
+            <button
+              disabled={!replyDraft.trim()}
               onClick={() => actions.onReply(thread.id)}
               type="button"
             >
@@ -449,15 +629,23 @@ function SelectedTextPreview({
 }
 
 function SuggestionBlock({
+  canApply,
+  isPending,
+  onApply,
   onChange,
-  onStatusChange,
-  thread,
+  onRevert,
+  originalText,
+  suggestion,
 }: {
+  canApply: boolean;
+  isPending: boolean;
+  onApply(): void;
   onChange(replacement: string): void;
-  onStatusChange(status: SuggestionStatus): void;
-  thread: ReviewThread;
+  onRevert(): void;
+  originalText: string;
+  suggestion?: ReviewSuggestion;
 }) {
-  if (!thread.suggestion) {
+  if (!suggestion) {
     return null;
   }
 
@@ -465,32 +653,35 @@ function SuggestionBlock({
     <div className="annotation-suggestion-block">
       <div className="annotation-heading">
         <strong>Suggested change</strong>
-        <span>{suggestionStatusLabel(thread.suggestion.status)}</span>
+        <span>{suggestionStatusLabel(suggestion.status)}</span>
       </div>
       <div className="suggestion-diff">
-        <pre data-kind="old">{thread.selectedText ?? ""}</pre>
+        <pre data-kind="old">{suggestion.originalText ?? originalText}</pre>
         <textarea
           aria-label="Suggested replacement"
           className="annotation-suggestion-input"
           onChange={(event) => onChange(event.currentTarget.value)}
-          value={thread.suggestion.replacement}
+          value={suggestion.replacement}
         />
       </div>
       <div className="annotation-actions">
-        <button
-          className={thread.suggestion.status === "dismissed" ? "active" : ""}
-          onClick={() => onStatusChange("dismissed")}
-          type="button"
-        >
-          Dismiss
-        </button>
-        <button
-          className={thread.suggestion.status === "committed" ? "active" : ""}
-          onClick={() => onStatusChange("committed")}
-          type="button"
-        >
-          Commit suggestion
-        </button>
+        {suggestion.status === "applied" ? (
+          <button
+            disabled={isPending}
+            onClick={onRevert}
+            type="button"
+          >
+            Revert suggestion
+          </button>
+        ) : (
+          <button
+            disabled={isPending || !canApply}
+            onClick={onApply}
+            type="button"
+          >
+            Apply suggestion
+          </button>
+        )}
       </div>
     </div>
   );
@@ -532,6 +723,25 @@ function isMultiLineRange(range: SelectedLineRange): boolean {
   );
 }
 
+function suggestionFor(
+  thread: ReviewThread,
+  replyId?: string,
+): ReviewSuggestion | undefined {
+  if (replyId == null) {
+    return thread.suggestion;
+  }
+
+  return thread.replies.find((reply) => reply.id === replyId)?.suggestion;
+}
+
+function suggestionActionId(threadId: string, replyId?: string): string {
+  return replyId == null ? threadId : `${threadId}:${replyId}`;
+}
+
+function canApplySuggestion(thread: ReviewThread): boolean {
+  return thread.side !== "deletions";
+}
+
 function suggestionTextForTarget(
   source: SourcePayload,
   target: CommentTarget,
@@ -544,10 +754,8 @@ function suggestionTextForTarget(
 
 function suggestionStatusLabel(status: SuggestionStatus): string {
   switch (status) {
-    case "committed":
-      return "committed";
-    case "dismissed":
-      return "dismissed";
+    case "applied":
+      return "applied";
     case "open":
       return "open";
   }

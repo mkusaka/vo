@@ -59,7 +59,10 @@ intentionally want ignored files to appear.
 - `Diff` shows the current file against the content captured when it was first
   loaded into the session, using `@pierre/diffs` with char-level word changes.
 - Review threads support replies, resolve, comment drafts, and GitHub-style
-  `suggestion` blocks for a line, multiple lines, or a token range.
+  `suggestion` blocks for a line, multiple lines, or a token range. Suggestions
+  can be added from the first comment or a reply, applied to the in-session
+  source, and reverted.
+- Click the file path in the preview header to copy it.
 - The viewer chrome and `@pierre/trees` / `@pierre/diffs` panes can be switched
   between light and dark mode from the preview toolbar.
 - Dropped `.html`, `.htm`, `.md`, `.markdown`, and `.mdx` files are added as

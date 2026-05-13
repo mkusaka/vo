@@ -5,11 +5,13 @@ import chokidar, { type FSWatcher } from "chokidar";
 import {
   collectFiles,
   createVirtualSourceFile,
+  extractTitle,
   isGlobPattern,
   isGitIgnored,
   isSupportedFile,
   loadSourceFile,
   loadSourceFiles,
+  toSearchableText,
 } from "./content.mts";
 import type { FileMetadata, SourceFile, SupportedKind, WatchEntry } from "./types.mts";
 
@@ -56,6 +58,29 @@ export class ViewerState {
 
   getMetadata(): FileMetadata[] {
     return this.files.map(toMetadata);
+  }
+
+  updateFileContent(id: string, content: string): SourceFile | undefined {
+    const existing = this.filesById.get(id);
+
+    if (!existing) {
+      return undefined;
+    }
+
+    const nextFile: SourceFile = {
+      ...existing,
+      content,
+      mtimeMs: Date.now(),
+      searchableText: toSearchableText(content, existing.kind),
+      size: Buffer.byteLength(content),
+      title: extractTitle(content, existing.kind, existing.name),
+    };
+
+    this.filesById.set(id, nextFile);
+    this.broadcast("file", { file: toMetadata(nextFile) });
+    this.broadcast("files", { files: this.getMetadata(), changedId: id });
+
+    return nextFile;
   }
 
   subscribe(client: EventClient): () => void {

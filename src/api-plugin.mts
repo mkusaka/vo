@@ -6,6 +6,7 @@ import type { Plugin } from "vite";
 
 import { renderDocument } from "./render.mts";
 import { getSessionToken, getViewerState } from "./session-state.mts";
+import type { SourceFile } from "./types.mts";
 import type { DroppedFileInput } from "./viewer-state.mts";
 
 const require = createRequire(import.meta.url);
@@ -72,15 +73,24 @@ async function handleRequest(
       return true;
     }
 
+    sendJson(res, 200, sourcePayload(file));
+    return true;
+  }
+
+  if (url.pathname.startsWith("/api/source/") && req.method === "PATCH") {
+    const id = decodeURIComponent(url.pathname.slice("/api/source/".length));
+    const input = asSourceUpdate(await readJson(req));
+    const file = getViewerState().updateFileContent(id, input.content);
+
+    if (!file) {
+      sendJson(res, 404, { error: "file not found" });
+      return true;
+    }
+
     sendJson(res, 200, {
-      baselineContent: file.baselineContent,
-      content: file.content,
-      id: file.id,
-      kind: file.kind,
-      mtimeMs: file.mtimeMs,
-      name: file.name,
-      relativePath: file.relativePath,
-      title: file.title,
+      files: getViewerState().getMetadata(),
+      html: renderDocument(file, requestOrigin(req)),
+      source: sourcePayload(file),
     });
     return true;
   }
@@ -248,6 +258,44 @@ function asDroppedFiles(value: unknown): DroppedFileInput[] {
       name: (file as { name: string }).name,
     };
   });
+}
+
+function asSourceUpdate(value: unknown): {
+  content: string;
+} {
+  if (
+    !value
+    || typeof value !== "object"
+    || typeof (value as { content?: unknown }).content !== "string"
+  ) {
+    throw new Error("source update request must contain content");
+  }
+
+  return {
+    content: (value as { content: string }).content,
+  };
+}
+
+function sourcePayload(file: SourceFile): {
+  baselineContent: string;
+  content: string;
+  id: string;
+  kind: SourceFile["kind"];
+  mtimeMs: number;
+  name: string;
+  relativePath: string;
+  title: string;
+} {
+  return {
+    baselineContent: file.baselineContent,
+    content: file.content,
+    id: file.id,
+    kind: file.kind,
+    mtimeMs: file.mtimeMs,
+    name: file.name,
+    relativePath: file.relativePath,
+    title: file.title,
+  };
 }
 
 function asAddPathsInput(value: unknown): {

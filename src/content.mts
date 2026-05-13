@@ -244,7 +244,7 @@ export function toSearchableText(content: string, kind: SupportedKind): string {
   ));
 }
 
-function extractTitle(content: string, kind: SupportedKind, fallback: string): string {
+export function extractTitle(content: string, kind: SupportedKind, fallback: string): string {
   if (kind === "html") {
     const title = content.match(/<title[^>]*>([\s\S]*?)<\/title>/iu)?.[1]
       ?? content.match(/<h1[^>]*>([\s\S]*?)<\/h1>/iu)?.[1];

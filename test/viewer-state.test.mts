@@ -40,3 +40,32 @@ test("ViewerState keeps the first loaded content as diff baseline", async () => 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("ViewerState updates in-session content without changing the baseline", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "vo-state-"));
+  const markdown = path.join(directory, "guide.md");
+
+  try {
+    await writeFile(markdown, "# First\n\nBody");
+
+    const state = new ViewerState([]);
+    const firstLoad = await state.addPaths({
+      cwd: directory,
+      gitignore: false,
+      paths: ["guide.md"],
+      recursive: true,
+      watch: false,
+    });
+    const id = firstLoad.files[0]?.id;
+    assert.ok(id);
+
+    const updated = state.updateFileContent(id, "# Second\n\nUpdated body");
+
+    assert.equal(updated?.baselineContent, "# First\n\nBody");
+    assert.equal(updated?.content, "# Second\n\nUpdated body");
+    assert.equal(updated?.title, "Second");
+    assert.equal(updated?.searchableText, "Second Updated body");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
