@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  appendSuggestionBlock,
+  bodyWithoutSuggestionBlock,
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
+  createSuggestionBlock,
+  parseSuggestionBlock,
   selectedTextForTarget,
   targetFromDiffRange,
   targetFromDiffToken,
@@ -109,6 +113,63 @@ test("selectedTextForTarget extracts multiline content", () => {
   }), "two\nthree");
 });
 
+test("createSuggestionBlock formats a GitHub-style suggestion fence", () => {
+  assert.equal(
+    createSuggestionBlock("new\nvalue"),
+    "```suggestion\nnew\nvalue\n```",
+  );
+});
+
+test("createSuggestionBlock uses tilde fences when the suggestion contains backticks", () => {
+  assert.equal(
+    createSuggestionBlock("```ts\nconst value = true;\n```"),
+    "~~~suggestion\n```ts\nconst value = true;\n```\n~~~",
+  );
+});
+
+test("appendSuggestionBlock keeps the review body and appends a suggestion", () => {
+  assert.equal(
+    appendSuggestionBlock("Use clearer text.", "new value"),
+    "Use clearer text.\n\n```suggestion\nnew value\n```",
+  );
+});
+
+test("appendSuggestionBlock does not add a second suggestion block", () => {
+  const body = "Use clearer text.\n\n```suggestion\nnew value\n```";
+
+  assert.equal(appendSuggestionBlock(body, "other value"), body);
+});
+
+test("parseSuggestionBlock extracts a multiline replacement", () => {
+  assert.deepEqual(
+    parseSuggestionBlock("Use clearer text.\n\n```suggestion\nnew\nvalue\n```"),
+    { replacement: "new\nvalue" },
+  );
+});
+
+test("parseSuggestionBlock supports tilde fences", () => {
+  assert.deepEqual(
+    parseSuggestionBlock("~~~suggestion\n```ts\nconst value = true;\n```\n~~~"),
+    { replacement: "```ts\nconst value = true;\n```" },
+  );
+});
+
+test("bodyWithoutSuggestionBlock removes the suggestion fence", () => {
+  assert.equal(
+    bodyWithoutSuggestionBlock("Use clearer text.\n\n```suggestion\nnew value\n```"),
+    "Use clearer text.",
+  );
+});
+
+test("bodyWithoutSuggestionBlock keeps regular fenced code blocks", () => {
+  const body = "```ts\nconst value = true;\n```\n\n```suggestion\nnew value\n```";
+
+  assert.equal(
+    bodyWithoutSuggestionBlock(body),
+    "```ts\nconst value = true;\n```",
+  );
+});
+
 test("createFileCommentAnnotations includes saved threads and the active draft", () => {
   const threads: ReviewThread[] = [
     reviewThread("readme.md", 2, "Looks good"),
@@ -144,7 +205,7 @@ test("createDiffCommentAnnotations includes side-aware threads and draft", () =>
     reviewThread("readme.md", 2, "File only"),
     reviewThread("readme.md", 3, "Add this", "additions"),
     {
-      ...reviewThread("readme.md", 5, "Replace this", "deletions"),
+      ...reviewThread("readme.md", 5, "Replace this\n\n```suggestion\nnew value\n```", "deletions"),
       endLineNumber: 6,
       kind: "suggestion",
       selectedText: "old value",

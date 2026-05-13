@@ -58,8 +58,8 @@ intentionally want ignored files to appear.
   `+`, drag-select lines, or click a token to start a review thread.
 - `Diff` shows the current file against the content captured when it was first
   loaded into the session, using `@pierre/diffs` with char-level word changes.
-- Review threads support replies, resolve, comment drafts, and suggested
-  replacements for a line, multiple lines, or a token range.
+- Review threads support replies, resolve, comment drafts, and GitHub-style
+  `suggestion` blocks for a line, multiple lines, or a token range.
 - The viewer chrome and `@pierre/trees` / `@pierre/diffs` panes can be switched
   between light and dark mode from the preview toolbar.
 - Dropped `.html`, `.htm`, `.md`, `.markdown`, and `.mdx` files are added as

@@ -12,8 +12,11 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  appendSuggestionBlock,
+  bodyWithoutSuggestionBlock,
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
+  parseSuggestionBlock,
   selectedTextForTarget,
   targetFromDiffRange,
   targetFromDiffToken,
@@ -21,7 +24,6 @@ import {
   targetFromFileToken,
   type CommentAnnotationMetadata,
   type CommentTarget,
-  type ReviewKind,
   type ReviewThread,
   type SuggestionStatus,
 } from "./comment-annotations.mts";
@@ -40,8 +42,6 @@ export default function DiffsPanel({
 }: DiffsPanelProps) {
   const [threads, setThreads] = useState<ReviewThread[]>([]);
   const [draftBody, setDraftBody] = useState("");
-  const [draftKind, setDraftKind] = useState<ReviewKind>("comment");
-  const [draftSuggestion, setDraftSuggestion] = useState("");
   const [draftTarget, setDraftTarget] = useState<CommentTarget>();
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
@@ -124,6 +124,8 @@ export default function DiffsPanel({
       return;
     }
 
+    const suggestion = parseSuggestionBlock(body);
+
     setThreads((current) => [
       ...current,
       {
@@ -133,25 +135,43 @@ export default function DiffsPanel({
         endLineNumber: draftTarget.endLineNumber,
         endSide: draftTarget.endSide,
         id: `${activeSource.id}:${current.length + 1}`,
-        kind: draftKind,
+        kind: suggestion == null ? "comment" : "suggestion",
         lineNumber: draftTarget.lineNumber,
         path: activeSource.relativePath,
         replies: [],
         resolved: false,
         selectedText: draftTarget.selectedText,
         side: draftTarget.side,
-        suggestion: draftKind === "suggestion"
-          ? {
-            replacement: draftSuggestion,
+        suggestion: suggestion == null
+          ? undefined
+          : {
+            replacement: suggestion.replacement,
             status: "open",
-          }
-          : undefined,
+          },
       },
     ]);
     cancelDraft();
   };
-  const setThreadResolved = (id: string, resolved: boolean) => {
-    updateThread(id, (thread) => ({ ...thread, resolved }));
+  const insertSuggestion = () => {
+    if (draftTarget == null) {
+      return;
+    }
+
+    setDraftBody((current) => appendSuggestionBlock(
+      current,
+      suggestionTextForTarget(activeSource, draftTarget),
+    ));
+  };
+  const replaceSuggestion = (id: string, replacement: string) => {
+    updateThread(id, (thread) => ({
+      ...thread,
+      body: replaceSuggestionBlock(thread.body, replacement),
+      kind: "suggestion",
+      suggestion: {
+        replacement,
+        status: thread.suggestion?.status ?? "open",
+      },
+    }));
   };
   const setSuggestionStatus = (id: string, status: SuggestionStatus) => {
     updateThread(id, (thread) => thread.suggestion
@@ -163,6 +183,9 @@ export default function DiffsPanel({
         },
       }
       : thread);
+  };
+  const setThreadResolved = (id: string, resolved: boolean) => {
+    updateThread(id, (thread) => ({ ...thread, resolved }));
   };
   const addReply = (id: string) => {
     const body = replyDrafts[id]?.trim();
@@ -190,17 +213,9 @@ export default function DiffsPanel({
     annotation: LineAnnotation<CommentAnnotationMetadata> | DiffLineAnnotation<CommentAnnotationMetadata>,
   ) => renderAnnotation(annotation, {
     draftBody,
-    draftKind,
-    draftSuggestion,
     onCancel: cancelDraft,
     onDraftBodyChange: setDraftBody,
-    onDraftKindChange(nextKind) {
-      setDraftKind(nextKind);
-      if (draftTarget != null && nextKind === "suggestion" && !draftSuggestion) {
-        setDraftSuggestion(suggestionTextForTarget(activeSource, draftTarget));
-      }
-    },
-    onDraftSuggestionChange: setDraftSuggestion,
+    onInsertSuggestion: insertSuggestion,
     onReply: addReply,
     onReplyBodyChange(id, value) {
       setReplyDrafts((current) => ({
@@ -209,6 +224,7 @@ export default function DiffsPanel({
       }));
     },
     onResolve: setThreadResolved,
+    onSuggestionChange: replaceSuggestion,
     onSuggestionStatus: setSuggestionStatus,
     onSubmit: submitDraft,
     replyDrafts,
@@ -274,16 +290,12 @@ export default function DiffsPanel({
     };
 
     setDraftBody("");
-    setDraftKind("comment");
-    setDraftSuggestion(selectedText);
     setDraftTarget(nextTarget);
     setSelectedLines(selectedRangeFromTarget(nextTarget));
   }
 
   function resetDraft() {
     setDraftBody("");
-    setDraftKind("comment");
-    setDraftSuggestion("");
     setDraftTarget(undefined);
   }
 
@@ -299,16 +311,14 @@ export default function DiffsPanel({
 
 type RenderAnnotationActions = {
   draftBody: string;
-  draftKind: ReviewKind;
-  draftSuggestion: string;
   onCancel(): void;
   onDraftBodyChange(value: string): void;
-  onDraftKindChange(kind: ReviewKind): void;
-  onDraftSuggestionChange(value: string): void;
+  onInsertSuggestion(): void;
   onReply(id: string): void;
   onReplyBodyChange(id: string, value: string): void;
   onResolve(id: string, resolved: boolean): void;
   onSubmit(): void;
+  onSuggestionChange(id: string, replacement: string): void;
   onSuggestionStatus(id: string, status: SuggestionStatus): void;
   replyDrafts: Record<string, string>;
 };
@@ -321,6 +331,7 @@ function renderAnnotation(
 
   if (annotation.metadata.kind === "thread" && annotation.metadata.thread) {
     const { thread } = annotation.metadata;
+    const commentBody = bodyWithoutSuggestionBlock(thread.body);
 
     return (
       <div className={`annotation-card annotation-${thread.kind}`}>
@@ -333,9 +344,10 @@ function renderAnnotation(
           <span className="annotation-target">{target}</span>
         </div>
 
-        <p>{thread.body}</p>
+        {commentBody ? <p>{commentBody}</p> : null}
         <SelectedTextPreview metadata={annotation.metadata} />
         <SuggestionBlock
+          onChange={(replacement) => actions.onSuggestionChange(thread.id, replacement)}
           onStatusChange={(status) => actions.onSuggestionStatus(thread.id, status)}
           thread={thread}
         />
@@ -381,55 +393,36 @@ function renderAnnotation(
     );
   }
 
+  const hasSuggestion = parseSuggestionBlock(actions.draftBody) != null;
+
   return (
     <div className="annotation-card annotation-composer">
       <div className="annotation-heading">
         <strong>New review</strong>
         <span>{target}</span>
       </div>
-      <div className="annotation-mode-tabs" role="tablist" aria-label="Review type">
-        <button
-          aria-selected={actions.draftKind === "comment"}
-          className={actions.draftKind === "comment" ? "active" : ""}
-          onClick={() => actions.onDraftKindChange("comment")}
-          type="button"
-        >
-          Comment
-        </button>
-        <button
-          aria-selected={actions.draftKind === "suggestion"}
-          className={actions.draftKind === "suggestion" ? "active" : ""}
-          onClick={() => actions.onDraftKindChange("suggestion")}
-          type="button"
-        >
-          Suggest
-        </button>
-      </div>
       <SelectedTextPreview metadata={annotation.metadata} />
       <textarea
         aria-label={`Comment for ${target}`}
         onChange={(event) => actions.onDraftBodyChange(event.currentTarget.value)}
         placeholder="Leave a comment..."
-        rows={3}
+        rows={hasSuggestion ? 8 : 4}
         value={actions.draftBody}
       />
-      {actions.draftKind === "suggestion" ? (
-        <textarea
-          aria-label={`Suggestion for ${target}`}
-          className="annotation-suggestion-input"
-          onChange={(event) => actions.onDraftSuggestionChange(event.currentTarget.value)}
-          placeholder="Suggested replacement..."
-          rows={4}
-          value={actions.draftSuggestion}
-        />
-      ) : null}
       <div className="annotation-actions">
+        <button
+          disabled={hasSuggestion}
+          onClick={actions.onInsertSuggestion}
+          type="button"
+        >
+          Make suggestion
+        </button>
         <button
           disabled={!actions.draftBody.trim()}
           onClick={actions.onSubmit}
           type="button"
         >
-          {actions.draftKind === "suggestion" ? "Suggest" : "Comment"}
+          Add review comment
         </button>
         <button onClick={actions.onCancel} type="button">
           Cancel
@@ -456,9 +449,11 @@ function SelectedTextPreview({
 }
 
 function SuggestionBlock({
+  onChange,
   onStatusChange,
   thread,
 }: {
+  onChange(replacement: string): void;
   onStatusChange(status: SuggestionStatus): void;
   thread: ReviewThread;
 }) {
@@ -469,27 +464,32 @@ function SuggestionBlock({
   return (
     <div className="annotation-suggestion-block">
       <div className="annotation-heading">
-        <strong>Suggestion</strong>
+        <strong>Suggested change</strong>
         <span>{suggestionStatusLabel(thread.suggestion.status)}</span>
       </div>
       <div className="suggestion-diff">
         <pre data-kind="old">{thread.selectedText ?? ""}</pre>
-        <pre data-kind="new">{thread.suggestion.replacement}</pre>
+        <textarea
+          aria-label="Suggested replacement"
+          className="annotation-suggestion-input"
+          onChange={(event) => onChange(event.currentTarget.value)}
+          value={thread.suggestion.replacement}
+        />
       </div>
       <div className="annotation-actions">
         <button
-          className={thread.suggestion.status === "undone" ? "active" : ""}
-          onClick={() => onStatusChange("undone")}
+          className={thread.suggestion.status === "dismissed" ? "active" : ""}
+          onClick={() => onStatusChange("dismissed")}
           type="button"
         >
-          Undo
+          Dismiss
         </button>
         <button
-          className={thread.suggestion.status === "kept" ? "active" : ""}
-          onClick={() => onStatusChange("kept")}
+          className={thread.suggestion.status === "committed" ? "active" : ""}
+          onClick={() => onStatusChange("committed")}
           type="button"
         >
-          Keep
+          Commit suggestion
         </button>
       </div>
     </div>
@@ -544,13 +544,20 @@ function suggestionTextForTarget(
 
 function suggestionStatusLabel(status: SuggestionStatus): string {
   switch (status) {
-    case "kept":
-      return "kept";
+    case "committed":
+      return "committed";
+    case "dismissed":
+      return "dismissed";
     case "open":
       return "open";
-    case "undone":
-      return "undone";
   }
+}
+
+function replaceSuggestionBlock(body: string, replacement: string): string {
+  const commentBody = bodyWithoutSuggestionBlock(body);
+  const replacementBlock = appendSuggestionBlock("", replacement);
+
+  return commentBody ? `${commentBody}\n\n${replacementBlock}` : replacementBlock;
 }
 
 function createFileDiff(

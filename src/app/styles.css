@@ -546,11 +546,6 @@ dt {
   background: rgb(255 46 63 / 10%);
 }
 
-.suggestion-diff pre[data-kind="new"] {
-  border: 1px solid rgb(22 169 148 / 28%);
-  background: rgb(22 169 148 / 12%);
-}
-
 .annotation-card textarea {
   width: 100%;
   min-height: 72px;
@@ -563,7 +558,10 @@ dt {
   background: var(--vo-panel);
 }
 
-.annotation-suggestion-input {
+.annotation-card .annotation-suggestion-input {
+  min-height: 84px;
+  border: 1px solid rgb(22 169 148 / 28%);
+  background: rgb(22 169 148 / 12%);
   font-family: var(--diffs-font-family);
   font-size: 12px;
 }
@@ -588,7 +586,7 @@ dt {
   cursor: pointer;
 }
 
-.annotation-composer > .annotation-actions button:first-child,
+.annotation-composer > .annotation-actions button:nth-child(2),
 .annotation-reply-composer .annotation-actions button:first-child {
   color: #ffffff;
   border-color: var(--vo-accent);

@@ -19,7 +19,7 @@ export type CommentTarget = {
 
 export type ReviewKind = "comment" | "suggestion";
 
-export type SuggestionStatus = "open" | "kept" | "undone";
+export type SuggestionStatus = "open" | "committed" | "dismissed";
 
 export type ReviewReply = {
   body: string;
@@ -46,6 +46,10 @@ export type ReviewThread = {
   };
 };
 
+export type SuggestionBlock = {
+  replacement: string;
+};
+
 export type CommentAnnotationMetadata = {
   kind: "draft" | "thread";
   body?: string;
@@ -61,6 +65,45 @@ export type CommentAnnotationMetadata = {
   side?: AnnotationSide;
   thread?: ReviewThread;
 };
+
+export function createSuggestionBlock(replacement: string): string {
+  const fence = replacement.includes("```") ? "~~~" : "```";
+
+  return `${fence}suggestion\n${normalizeLineEndings(replacement)}\n${fence}`;
+}
+
+export function appendSuggestionBlock(
+  body: string,
+  replacement: string,
+): string {
+  if (parseSuggestionBlock(body) != null) {
+    return body;
+  }
+
+  const block = createSuggestionBlock(replacement);
+  const trimmedBody = body.trimEnd();
+
+  return trimmedBody ? `${trimmedBody}\n\n${block}` : block;
+}
+
+export function parseSuggestionBlock(body: string): SuggestionBlock | undefined {
+  const block = findSuggestionBlock(body);
+
+  return block ? { replacement: block.replacement } : undefined;
+}
+
+export function bodyWithoutSuggestionBlock(body: string): string {
+  const block = findSuggestionBlock(body);
+
+  if (!block) {
+    return body.trim();
+  }
+
+  return [
+    ...block.lines.slice(0, block.start),
+    ...block.lines.slice(block.end + 1),
+  ].join("\n").trim();
+}
 
 export function targetFromFileRange(
   range: SelectedLineRange,
@@ -228,4 +271,56 @@ function normalizeRange(start: number, end: number): {
   }
 
   return { end: start, start: end };
+}
+
+function findSuggestionBlock(body: string): {
+  end: number;
+  fence: "```" | "~~~";
+  lines: string[];
+  replacement: string;
+  start: number;
+} | undefined {
+  const lines = normalizeLineEndings(body).split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const fence = suggestionFence(lines[index]);
+
+    if (!fence) {
+      continue;
+    }
+
+    const replacement: string[] = [];
+
+    for (let end = index + 1; end < lines.length; end += 1) {
+      if (isClosingFence(lines[end], fence)) {
+        return {
+          end,
+          fence,
+          lines,
+          replacement: replacement.join("\n"),
+          start: index,
+        };
+      }
+
+      replacement.push(lines[end]);
+    }
+
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function suggestionFence(line: string | undefined): "```" | "~~~" | undefined {
+  const match = line?.trim().match(/^(```|~~~)suggestion\b/iu);
+
+  return match?.[1] === "```" || match?.[1] === "~~~" ? match[1] : undefined;
+}
+
+function isClosingFence(line: string | undefined, fence: "```" | "~~~"): boolean {
+  return line?.trim() === fence;
+}
+
+function normalizeLineEndings(value: string): string {
+  return value.replace(/\r\n|\r|\n/gu, "\n");
 }
