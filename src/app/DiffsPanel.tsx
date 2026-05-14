@@ -9,7 +9,7 @@ import {
   type SelectedLineRange,
   type TokenEventBase,
 } from "@pierre/diffs";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
 
 import {
   appendSuggestionBlock,
@@ -39,30 +39,58 @@ type DiffsPanelProps = {
   viewMode: "annotate" | "diff";
 };
 
+type DiffsState = {
+  draftBody: string;
+  draftTarget?: CommentTarget;
+  pendingSuggestionId?: string;
+  replyDrafts: Record<string, string>;
+  selectedLines: SelectedLineRange | null;
+  threads: ReviewThread[];
+};
+
+type DiffsAction =
+  | { type: "draft-body-changed"; body: string }
+  | { type: "draft-cancelled" }
+  | { type: "draft-opened"; target: CommentTarget }
+  | { type: "pending-suggestion-changed"; pendingSuggestionId?: string }
+  | { type: "reply-draft-changed"; id: string; body: string }
+  | { type: "selected-lines-changed"; selectedLines: SelectedLineRange | null }
+  | { type: "source-changed" }
+  | { type: "thread-added"; thread: ReviewThread }
+  | {
+    type: "thread-updated";
+    id: string;
+    update(thread: ReviewThread): ReviewThread;
+  }
+  | { type: "view-mode-changed" };
+
+// react-doctor-disable-next-line react-doctor/no-giant-component
 export default function DiffsPanel({
   onSourceChange,
   source,
   themeMode,
   viewMode,
 }: DiffsPanelProps) {
-  const [threads, setThreads] = useState<ReviewThread[]>([]);
-  const [draftBody, setDraftBody] = useState("");
-  const [draftTarget, setDraftTarget] = useState<CommentTarget>();
-  const [pendingSuggestionId, setPendingSuggestionId] = useState<string>();
-  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
-  const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
+  const [state, dispatch] = useReducer(
+    diffsReducer,
+    undefined,
+    createInitialDiffsState,
+  );
+  const {
+    draftBody,
+    draftTarget,
+    pendingSuggestionId,
+    replyDrafts,
+    selectedLines,
+    threads,
+  } = state;
 
   useEffect(() => {
-    setThreads([]);
-    resetDraft();
-    setPendingSuggestionId(undefined);
-    setReplyDrafts({});
-    setSelectedLines(null);
+    dispatch({ type: "source-changed" });
   }, [source?.id]);
 
   useEffect(() => {
-    resetDraft();
-    setSelectedLines(null);
+    dispatch({ type: "view-mode-changed" });
   }, [viewMode]);
 
   const currentFile = useMemo(
@@ -109,20 +137,19 @@ export default function DiffsPanel({
     openDraftTarget(targetFromDiffToken(token));
   };
   const onFileLinesSelected = (range: SelectedLineRange | null) => {
-    setSelectedLines(range);
+    dispatch({ selectedLines: range, type: "selected-lines-changed" });
     if (range != null && isMultiLineRange(range)) {
       openFileDraft(range);
     }
   };
   const onDiffLinesSelected = (range: SelectedLineRange | null) => {
-    setSelectedLines(range);
+    dispatch({ selectedLines: range, type: "selected-lines-changed" });
     if (range != null && isMultiLineRange(range)) {
       openDiffDraft(range);
     }
   };
   const cancelDraft = () => {
-    resetDraft();
-    setSelectedLines(null);
+    dispatch({ type: "draft-cancelled" });
   };
   const submitDraft = () => {
     const body = draftBody.trim();
@@ -133,15 +160,14 @@ export default function DiffsPanel({
 
     const suggestion = parseSuggestionBlock(body);
 
-    setThreads((current) => [
-      ...current,
-      {
+    dispatch({
+      thread: {
         body,
         charEnd: draftTarget.charEnd,
         charStart: draftTarget.charStart,
         endLineNumber: draftTarget.endLineNumber,
         endSide: draftTarget.endSide,
-        id: `${activeSource.id}:${current.length + 1}`,
+        id: `${activeSource.id}:${threads.length + 1}`,
         kind: suggestion == null ? "comment" : "suggestion",
         lineNumber: draftTarget.lineNumber,
         path: activeSource.relativePath,
@@ -156,18 +182,21 @@ export default function DiffsPanel({
             status: "open",
           },
       },
-    ]);
-    cancelDraft();
+      type: "thread-added",
+    });
   };
   const insertSuggestion = () => {
     if (draftTarget == null) {
       return;
     }
 
-    setDraftBody((current) => appendSuggestionBlock(
-      current,
-      suggestionTextForTarget(activeSource, draftTarget),
-    ));
+    dispatch({
+      body: appendSuggestionBlock(
+        draftBody,
+        suggestionTextForTarget(activeSource, draftTarget),
+      ),
+      type: "draft-body-changed",
+    });
   };
   const replaceSuggestion = (
     threadId: string,
@@ -190,13 +219,14 @@ export default function DiffsPanel({
       return;
     }
 
-    setReplyDrafts((current) => ({
-      ...current,
-      [id]: appendSuggestionBlock(
-        current[id] ?? "",
+    dispatch({
+      body: appendSuggestionBlock(
+        replyDrafts[id] ?? "",
         suggestionTextForTarget(activeSource, targetFromThread(thread)),
       ),
-    }));
+      id,
+      type: "reply-draft-changed",
+    });
   };
   const addReply = (id: string) => {
     const body = replyDrafts[id]?.trim();
@@ -224,10 +254,7 @@ export default function DiffsPanel({
         },
       ],
     }));
-    setReplyDrafts((current) => ({
-      ...current,
-      [id]: "",
-    }));
+    dispatch({ body: "", id, type: "reply-draft-changed" });
   };
   const applyReviewSuggestion = async (
     threadId: string,
@@ -253,7 +280,7 @@ export default function DiffsPanel({
       suggestion.replacement,
     );
 
-    setPendingSuggestionId(pendingId);
+    dispatch({ pendingSuggestionId: pendingId, type: "pending-suggestion-changed" });
 
     try {
       const updatedSource = await onSourceChange(activeSource.id, applied.content);
@@ -266,7 +293,7 @@ export default function DiffsPanel({
         status: "applied",
       }));
     } finally {
-      setPendingSuggestionId(undefined);
+      dispatch({ pendingSuggestionId: undefined, type: "pending-suggestion-changed" });
     }
   };
   const revertReviewSuggestion = async (
@@ -293,7 +320,7 @@ export default function DiffsPanel({
         originalText,
       ).content;
 
-    setPendingSuggestionId(pendingId);
+    dispatch({ pendingSuggestionId: pendingId, type: "pending-suggestion-changed" });
 
     try {
       await onSourceChange(activeSource.id, nextContent);
@@ -303,7 +330,7 @@ export default function DiffsPanel({
         status: "open",
       }));
     } finally {
-      setPendingSuggestionId(undefined);
+      dispatch({ pendingSuggestionId: undefined, type: "pending-suggestion-changed" });
     }
   };
   const renderCommentAnnotation = (
@@ -312,15 +339,14 @@ export default function DiffsPanel({
     draftBody,
     pendingSuggestionId,
     onCancel: cancelDraft,
-    onDraftBodyChange: setDraftBody,
+    onDraftBodyChange(body) {
+      dispatch({ body, type: "draft-body-changed" });
+    },
     onInsertSuggestion: insertSuggestion,
     onInsertReplySuggestion: insertReplySuggestion,
     onReply: addReply,
     onReplyBodyChange(id, value) {
-      setReplyDrafts((current) => ({
-        ...current,
-        [id]: value,
-      }));
+      dispatch({ body: value, id, type: "reply-draft-changed" });
     },
     onResolve: setThreadResolved,
     onSuggestionApply: applyReviewSuggestion,
@@ -389,23 +415,14 @@ export default function DiffsPanel({
       selectedText: target.selectedText ?? selectedText,
     };
 
-    setDraftBody("");
-    setDraftTarget(nextTarget);
-    setSelectedLines(selectedRangeFromTarget(nextTarget));
-  }
-
-  function resetDraft() {
-    setDraftBody("");
-    setDraftTarget(undefined);
+    dispatch({ target: nextTarget, type: "draft-opened" });
   }
 
   function updateThread(
     id: string,
     update: (thread: ReviewThread) => ReviewThread,
   ) {
-    setThreads((current) => current.map((thread) => (
-      thread.id === id ? update(thread) : thread
-    )));
+    dispatch({ id, type: "thread-updated", update });
   }
 
   function updateSuggestion(
@@ -449,6 +466,73 @@ export default function DiffsPanel({
         }),
       };
     });
+  }
+}
+
+function createInitialDiffsState(): DiffsState {
+  return {
+    draftBody: "",
+    pendingSuggestionId: undefined,
+    replyDrafts: {},
+    selectedLines: null,
+    threads: [],
+  };
+}
+
+function diffsReducer(state: DiffsState, action: DiffsAction): DiffsState {
+  switch (action.type) {
+    case "draft-body-changed":
+      return { ...state, draftBody: action.body };
+    case "draft-cancelled":
+      return {
+        ...state,
+        draftBody: "",
+        draftTarget: undefined,
+        selectedLines: null,
+      };
+    case "draft-opened":
+      return {
+        ...state,
+        draftBody: "",
+        draftTarget: action.target,
+        selectedLines: selectedRangeFromTarget(action.target),
+      };
+    case "pending-suggestion-changed":
+      return { ...state, pendingSuggestionId: action.pendingSuggestionId };
+    case "reply-draft-changed":
+      return {
+        ...state,
+        replyDrafts: {
+          ...state.replyDrafts,
+          [action.id]: action.body,
+        },
+      };
+    case "selected-lines-changed":
+      return { ...state, selectedLines: action.selectedLines };
+    case "source-changed":
+      return createInitialDiffsState();
+    case "thread-added":
+      return {
+        ...state,
+        draftBody: "",
+        draftTarget: undefined,
+        selectedLines: null,
+        threads: [...state.threads, action.thread],
+      };
+    case "thread-updated":
+      return {
+        ...state,
+        threads: state.threads.map((thread) => (
+          thread.id === action.id ? action.update(thread) : thread
+        )),
+      };
+    case "view-mode-changed":
+      return {
+        ...state,
+        draftBody: "",
+        draftTarget: undefined,
+        selectedLines: null,
+      };
   }
 }
 
@@ -709,18 +793,34 @@ function SuggestionLines({
   marker: "+" | "-";
   text: string;
 }) {
-  const lines = text.length === 0 ? [""] : text.split(/\r\n|\r|\n/u);
+  const lines = keyedSuggestionLines(text);
 
   return (
     <div className="suggestion-code">
-      {lines.map((line, index) => (
-        <div className="suggestion-line" key={`${index}:${line}`}>
+      {lines.map(({ key, line }) => (
+        <div className="suggestion-line" key={key}>
           <span aria-hidden="true" className="suggestion-line-marker">{marker}</span>
           <code>{line || " "}</code>
         </div>
       ))}
     </div>
   );
+}
+
+function keyedSuggestionLines(text: string): Array<{ key: string; line: string }> {
+  const counts = new Map<string, number>();
+  const lines = text.length === 0 ? [""] : text.split(/\r\n|\r|\n/u);
+
+  return lines.map((line) => {
+    const occurrence = counts.get(line) ?? 0;
+
+    counts.set(line, occurrence + 1);
+
+    return {
+      key: `${occurrence}:${line}`,
+      line,
+    };
+  });
 }
 
 function describeAnnotationTarget(metadata: CommentAnnotationMetadata): string {

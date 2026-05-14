@@ -4,6 +4,7 @@ import {
   lazy,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type DragEvent,
@@ -50,215 +51,78 @@ type SourceUpdatePayload = {
 type ViewMode = "render" | "annotate" | "diff";
 type ThemeMode = "dark" | "light";
 
+type ViewerState = {
+  files: FileMetadata[];
+  html: string;
+  isDragging: boolean;
+  mode: SearchMode;
+  query: string;
+  requestedPath?: string;
+  selectedId?: string;
+  source?: SourcePayload;
+  status: string;
+  themeMode: ThemeMode;
+  viewMode: ViewMode;
+};
+
+type ViewerAction =
+  | { type: "document-loaded"; html: string }
+  | { type: "dragging-changed"; isDragging: boolean }
+  | { type: "files-loaded"; files: FileMetadata[]; status?: string }
+  | { type: "mode-changed"; mode: SearchMode }
+  | { type: "query-changed"; query: string }
+  | { type: "requested-path-changed"; requestedPath?: string }
+  | { type: "selected-id-changed"; selectedId?: string }
+  | { type: "selected-file-chosen"; selectedId: string }
+  | { type: "source-loaded"; source?: SourcePayload }
+  | {
+    type: "source-updated";
+    files: FileMetadata[];
+    html: string;
+    source: SourcePayload;
+    status: string;
+  }
+  | { type: "status-changed"; status: string }
+  | { type: "theme-mode-changed"; themeMode: ThemeMode }
+  | { type: "view-mode-changed"; viewMode: ViewMode };
+
 export function ViewerApp() {
-  const [files, setFiles] = useState<FileMetadata[]>([]);
-  const [requestedPath, setRequestedPath] = useState(initialSelectedPath);
-  const [selectedId, setSelectedId] = useState<string>();
-  const [html, setHtml] = useState("");
-  const [source, setSource] = useState<SourcePayload>();
-  const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<SearchMode>("filename");
-  const [viewMode, setViewMode] = useState<ViewMode>("render");
-  const [themeMode, setThemeMode] = useState<ThemeMode>("light");
-  const [status, setStatus] = useState("ready");
-  const [isDragging, setDragging] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetch("/api/files")
-      .then((response) => response.json() as Promise<FilesPayload>)
-      .then((payload) => {
-        if (!cancelled) {
-          setFiles(payload.files);
-        }
-      })
-      .catch((error: unknown) => {
-        setStatus(formatError(error));
-      });
-
-    const events = new EventSource("/api/events");
-    events.addEventListener("files", (event) => {
-      const payload = JSON.parse(event.data) as FilesPayload;
-      setFiles(payload.files);
-      setStatus("updated");
-    });
-    events.addEventListener("error", () => {
-      setStatus("connection lost");
-    });
-
-    return () => {
-      cancelled = true;
-      events.close();
-    };
-  }, []);
-
-  useEffect(() => {
-    const syncRequestedPath = () => {
-      setRequestedPath(selectedPathFromSearch(window.location.search));
-    };
-
-    window.addEventListener("popstate", syncRequestedPath);
-
-    return () => {
-      window.removeEventListener("popstate", syncRequestedPath);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (files.length === 0) {
-      setSelectedId(undefined);
-      return;
-    }
-
-    const requestedFile = requestedPath
-      ? findFileByPath(files, requestedPath)
-      : undefined;
-
-    if (requestedFile && requestedFile.id !== selectedId) {
-      setSelectedId(requestedFile.id);
-      return;
-    }
-
-    if (!selectedId || !files.some((file) => file.id === selectedId)) {
-      setSelectedId(files[0]?.id);
-    }
-  }, [files, requestedPath, selectedId]);
-
-  const results = useMemo(
-    () => searchFiles(files, query, mode),
-    [files, mode, query],
-  );
-  const selected = files.find((file) => file.id === selectedId);
-  const selectedRefreshKey = selected
-    ? `${selected.id}:${selected.mtimeMs}`
-    : undefined;
-  const viewerClassName = [
-    "viewer",
-    `theme-${themeMode}`,
-    isDragging ? "is-dragging" : "",
-  ].filter(Boolean).join(" ");
-  const selectFile = (id: string) => {
-    setRequestedPath(undefined);
-    setSelectedId(id);
-  };
-  const updateSelectedSource = async (
-    id: string,
-    content: string,
-  ): Promise<SourcePayload> => {
-    const response = await fetch(`/api/source/${encodeURIComponent(id)}`, {
-      body: JSON.stringify({ content }),
-      headers: {
-        "content-type": "application/json",
-      },
-      method: "PATCH",
-    });
-
-    if (!response.ok) {
-      throw new Error(`source update failed: ${response.status}`);
-    }
-
-    const payload = await response.json() as SourceUpdatePayload;
-
-    setFiles(payload.files);
-    setHtml(payload.html);
-    setSource(payload.source);
-    setStatus("suggestion applied");
-
-    return payload.source;
-  };
-
-  useEffect(() => {
-    if (!selected || typeof window === "undefined") {
-      return;
-    }
-
-    const nextUrl = withSelectedFilePath(window.location.href, selected.relativePath);
-    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-
-    if (nextUrl !== currentUrl) {
-      window.history.replaceState(null, "", nextUrl);
-    }
-  }, [selected]);
-
-  useEffect(() => {
-    if (!selectedId || !selectedRefreshKey) {
-      setHtml("");
-      return;
-    }
-
-    let cancelled = false;
-
-    fetch(`/api/document/${encodeURIComponent(selectedId)}`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`document request failed: ${response.status}`);
-        }
-
-        return response.json() as Promise<DocumentPayload>;
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          setHtml(payload.html);
-        }
-      })
-      .catch((error: unknown) => {
-        setStatus(formatError(error));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId, selectedRefreshKey]);
-
-  useEffect(() => {
-    if (!selectedId || !selectedRefreshKey) {
-      setSource(undefined);
-      return;
-    }
-
-    let cancelled = false;
-
-    fetch(`/api/source/${encodeURIComponent(selectedId)}`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`source request failed: ${response.status}`);
-        }
-
-        return response.json() as Promise<SourcePayload>;
-      })
-      .then((payload) => {
-        if (!cancelled) {
-          setSource(payload);
-        }
-      })
-      .catch((error: unknown) => {
-        setStatus(formatError(error));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedId, selectedRefreshKey]);
+  const {
+    files,
+    html,
+    mode,
+    query,
+    dispatch,
+    results,
+    searchInputRef,
+    selectFile,
+    selected,
+    selectedId,
+    source,
+    status,
+    themeMode,
+    updateSelectedSource,
+    viewerClassName,
+    viewMode,
+  } = useViewerController();
 
   return (
     <main
       className={viewerClassName}
       onDragLeave={(event) => {
         if (event.currentTarget === event.target) {
-          setDragging(false);
+          dispatch({ isDragging: false, type: "dragging-changed" });
         }
       }}
       onDragOver={(event) => {
         event.preventDefault();
-        setDragging(true);
+        dispatch({ isDragging: true, type: "dragging-changed" });
       }}
       onDrop={(event) => {
-        void handleDrop(event, setFiles, setStatus);
-        setDragging(false);
+        void handleDrop(event, dispatch);
+        dispatch({ isDragging: false, type: "dragging-changed" });
       }}
-      onKeyDown={(event) => handleShortcut(event, searchInputRef, setMode)}
+      onKeyDown={(event) => handleShortcut(event, searchInputRef, dispatch)}
     >
       <aside className="sidebar">
         <div className="sidebar-header">
@@ -274,7 +138,7 @@ export function ViewerApp() {
             <button
               aria-selected={mode === "filename"}
               className={mode === "filename" ? "active" : ""}
-              onClick={() => setMode("filename")}
+              onClick={() => dispatch({ mode: "filename", type: "mode-changed" })}
               type="button"
             >
               Files
@@ -282,7 +146,7 @@ export function ViewerApp() {
             <button
               aria-selected={mode === "text"}
               className={mode === "text" ? "active" : ""}
-              onClick={() => setMode("text")}
+              onClick={() => dispatch({ mode: "text", type: "mode-changed" })}
               type="button"
             >
               Text
@@ -291,7 +155,10 @@ export function ViewerApp() {
           <input
             ref={searchInputRef}
             aria-label="Search"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => dispatch({
+              query: event.target.value,
+              type: "query-changed",
+            })}
             placeholder="Search"
             type="search"
             value={query}
@@ -319,14 +186,28 @@ export function ViewerApp() {
           <div className="preview-title">
             <h1>{selected?.title ?? "vo"}</h1>
             <FilePathButton
-              onCopied={() => setStatus("path copied")}
-              onCopyFailed={(error) => setStatus(formatError(error))}
+              onCopyFailed={(error) => dispatch({
+                status: formatError(error),
+                type: "status-changed",
+              })}
               path={selected?.relativePath}
             />
           </div>
           <div className="preview-actions">
-            <ThemeToggle mode={themeMode} onChange={setThemeMode} />
-            <ViewModeTabs mode={viewMode} onChange={setViewMode} />
+            <ThemeToggle
+              mode={themeMode}
+              onChange={(nextThemeMode) => dispatch({
+                themeMode: nextThemeMode,
+                type: "theme-mode-changed",
+              })}
+            />
+            <ViewModeTabs
+              mode={viewMode}
+              onChange={(nextViewMode) => dispatch({
+                type: "view-mode-changed",
+                viewMode: nextViewMode,
+              })}
+            />
             {selected ? (
               <dl aria-label="File metadata">
                 <div>
@@ -362,6 +243,330 @@ export function ViewerApp() {
       </section>
     </main>
   );
+}
+
+type ViewerController = ViewerState & {
+  dispatch: (action: ViewerAction) => void;
+  results: SearchResult[];
+  searchInputRef: RefObject<HTMLInputElement | null>;
+  selectFile(id: string): void;
+  selected?: FileMetadata;
+  updateSelectedSource(id: string, content: string): Promise<SourcePayload>;
+  viewerClassName: string;
+};
+
+function useViewerController(): ViewerController {
+  const [state, dispatch] = useReducer(
+    viewerReducer,
+    undefined,
+    createInitialViewerState,
+  );
+  const {
+    files,
+    isDragging,
+    mode,
+    query,
+    requestedPath,
+    selectedId,
+    themeMode,
+  } = state;
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadFiles()
+      .then((loadedFiles) => {
+        if (!cancelled) {
+          dispatch({ files: loadedFiles, type: "files-loaded" });
+        }
+      })
+      .catch((error: unknown) => {
+        dispatch({ status: formatError(error), type: "status-changed" });
+      });
+
+    const events = new EventSource("/api/events");
+    const onFiles = (event: Event) => {
+      const payload = JSON.parse((event as MessageEvent).data) as FilesPayload;
+
+      dispatch({ files: payload.files, status: "updated", type: "files-loaded" });
+    };
+    const onError = () => {
+      dispatch({ status: "connection lost", type: "status-changed" });
+    };
+
+    events.addEventListener("files", onFiles);
+    events.addEventListener("error", onError);
+
+    return () => {
+      cancelled = true;
+      events.removeEventListener("files", onFiles);
+      events.removeEventListener("error", onError);
+      events.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncRequestedPath = () => {
+      dispatch({
+        requestedPath: selectedPathFromSearch(window.location.search),
+        type: "requested-path-changed",
+      });
+    };
+
+    window.addEventListener("popstate", syncRequestedPath);
+
+    return () => {
+      window.removeEventListener("popstate", syncRequestedPath);
+    };
+  }, []);
+
+  useEffect(() => {
+    const nextSelectedId = resolveSelectedId(files, requestedPath, selectedId);
+
+    if (nextSelectedId !== selectedId) {
+      dispatch({ selectedId: nextSelectedId, type: "selected-id-changed" });
+    }
+  }, [files, requestedPath, selectedId]);
+
+  const results = useMemo(
+    () => searchFiles(files, query, mode),
+    [files, mode, query],
+  );
+  const selected = files.find((file) => file.id === selectedId);
+  const selectedRefreshKey = selected
+    ? `${selected.id}:${selected.mtimeMs}`
+    : undefined;
+  const viewerClassName = [
+    "viewer",
+    `theme-${themeMode}`,
+    isDragging ? "is-dragging" : "",
+  ].filter(Boolean).join(" ");
+  const selectFile = (id: string) => {
+    dispatch({ selectedId: id, type: "selected-file-chosen" });
+  };
+  const updateSelectedSource = async (
+    id: string,
+    content: string,
+  ): Promise<SourcePayload> => {
+    const payload = await updateSourceContent(id, content);
+
+    dispatch({
+      files: payload.files,
+      html: payload.html,
+      source: payload.source,
+      status: "suggestion applied",
+      type: "source-updated",
+    });
+
+    return payload.source;
+  };
+
+  useEffect(() => {
+    if (!selected || typeof window === "undefined") {
+      return;
+    }
+
+    const nextUrl = withSelectedFilePath(window.location.href, selected.relativePath);
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selectedId || !selectedRefreshKey) {
+      dispatch({ html: "", type: "document-loaded" });
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadDocumentHtml(selectedId)
+      .then((loadedHtml) => {
+        if (!cancelled) {
+          dispatch({ html: loadedHtml, type: "document-loaded" });
+        }
+      })
+      .catch((error: unknown) => {
+        dispatch({ status: formatError(error), type: "status-changed" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, selectedRefreshKey]);
+
+  useEffect(() => {
+    if (!selectedId || !selectedRefreshKey) {
+      dispatch({ source: undefined, type: "source-loaded" });
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadSourcePayload(selectedId)
+      .then((payload) => {
+        if (!cancelled) {
+          dispatch({ source: payload, type: "source-loaded" });
+        }
+      })
+      .catch((error: unknown) => {
+        dispatch({ status: formatError(error), type: "status-changed" });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, selectedRefreshKey]);
+
+  return {
+    ...state,
+    dispatch,
+    results,
+    searchInputRef,
+    selectFile,
+    selected,
+    updateSelectedSource,
+    viewerClassName,
+  };
+}
+
+function createInitialViewerState(): ViewerState {
+  return {
+    files: [],
+    html: "",
+    isDragging: false,
+    mode: "filename",
+    query: "",
+    requestedPath: initialSelectedPath(),
+    status: "ready",
+    themeMode: "light",
+    viewMode: "render",
+  };
+}
+
+function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
+  switch (action.type) {
+    case "document-loaded":
+      return { ...state, html: action.html };
+    case "dragging-changed":
+      return { ...state, isDragging: action.isDragging };
+    case "files-loaded":
+      return {
+        ...state,
+        files: action.files,
+        status: action.status ?? state.status,
+      };
+    case "mode-changed":
+      return { ...state, mode: action.mode };
+    case "query-changed":
+      return { ...state, query: action.query };
+    case "requested-path-changed":
+      return { ...state, requestedPath: action.requestedPath };
+    case "selected-id-changed":
+      return { ...state, selectedId: action.selectedId };
+    case "selected-file-chosen":
+      return {
+        ...state,
+        requestedPath: undefined,
+        selectedId: action.selectedId,
+      };
+    case "source-loaded":
+      return { ...state, source: action.source };
+    case "source-updated":
+      return {
+        ...state,
+        files: action.files,
+        html: action.html,
+        source: action.source,
+        status: action.status,
+      };
+    case "status-changed":
+      return { ...state, status: action.status };
+    case "theme-mode-changed":
+      return { ...state, themeMode: action.themeMode };
+    case "view-mode-changed":
+      return { ...state, viewMode: action.viewMode };
+  }
+}
+
+async function loadFiles(): Promise<FileMetadata[]> {
+  const response = await fetch("/api/files");
+
+  if (!response.ok) {
+    throw new Error(`files request failed: ${response.status}`);
+  }
+
+  const payload = await response.json() as FilesPayload;
+
+  return payload.files;
+}
+
+async function loadDocumentHtml(id: string): Promise<string> {
+  const response = await fetch(`/api/document/${encodeURIComponent(id)}`);
+
+  if (!response.ok) {
+    throw new Error(`document request failed: ${response.status}`);
+  }
+
+  const payload = await response.json() as DocumentPayload;
+
+  return payload.html;
+}
+
+async function loadSourcePayload(id: string): Promise<SourcePayload> {
+  const response = await fetch(`/api/source/${encodeURIComponent(id)}`);
+
+  if (!response.ok) {
+    throw new Error(`source request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<SourcePayload>;
+}
+
+async function updateSourceContent(
+  id: string,
+  content: string,
+): Promise<SourceUpdatePayload> {
+  const response = await fetch(`/api/source/${encodeURIComponent(id)}`, {
+    body: JSON.stringify({ content }),
+    headers: {
+      "content-type": "application/json",
+    },
+    method: "PATCH",
+  });
+
+  if (!response.ok) {
+    throw new Error(`source update failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<SourceUpdatePayload>;
+}
+
+function resolveSelectedId(
+  files: readonly FileMetadata[],
+  requestedPath: string | undefined,
+  selectedId: string | undefined,
+): string | undefined {
+  if (files.length === 0) {
+    return undefined;
+  }
+
+  const requestedFile = requestedPath
+    ? findFileByPath(files, requestedPath)
+    : undefined;
+
+  if (requestedFile) {
+    return requestedFile.id;
+  }
+
+  if (selectedId && files.some((file) => file.id === selectedId)) {
+    return selectedId;
+  }
+
+  return files[0]?.id;
 }
 
 function TreePanel({
@@ -516,14 +721,35 @@ function ViewModeTabs({
 }
 
 function FilePathButton({
-  onCopied,
   onCopyFailed,
   path,
 }: {
-  onCopied(): void;
   onCopyFailed(error: unknown): void;
   path?: string;
 }) {
+  const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | "idle">("idle");
+  const copyStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (copyStatusTimeoutRef.current) {
+        clearTimeout(copyStatusTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const showCopyStatus = (status: "copied" | "failed") => {
+    if (copyStatusTimeoutRef.current) {
+      clearTimeout(copyStatusTimeoutRef.current);
+    }
+
+    setCopyStatus(status);
+    copyStatusTimeoutRef.current = setTimeout(() => {
+      setCopyStatus("idle");
+      copyStatusTimeoutRef.current = undefined;
+    }, 1600);
+  };
+
   if (!path) {
     return <p>No document loaded</p>;
   }
@@ -536,19 +762,30 @@ function FilePathButton({
         className="file-path-copy-button"
         onClick={() => {
           if (!navigator.clipboard) {
+            showCopyStatus("failed");
             onCopyFailed(new Error("clipboard unavailable"));
             return;
           }
 
           void navigator.clipboard.writeText(path)
-            .then(onCopied)
-            .catch(onCopyFailed);
+            .then(() => showCopyStatus("copied"))
+            .catch((error: unknown) => {
+              showCopyStatus("failed");
+              onCopyFailed(error);
+            });
         }}
         title="Copy file path"
         type="button"
       >
         <CopyIcon />
       </button>
+      <span className={`file-path-copy-feedback is-${copyStatus}`} role="status">
+        {copyStatus === "copied"
+          ? "Copied"
+          : copyStatus === "failed"
+            ? "Failed"
+            : ""}
+      </span>
     </div>
   );
 }
@@ -632,7 +869,7 @@ function DocumentBody({
 function handleShortcut(
   event: KeyboardEvent<HTMLElement>,
   inputRef: RefObject<HTMLInputElement | null>,
-  setMode: (mode: SearchMode) => void,
+  dispatch: (action: ViewerAction) => void,
 ): void {
   const target = event.target as HTMLElement | null;
 
@@ -645,21 +882,20 @@ function handleShortcut(
 
   if (event.key === "t") {
     event.preventDefault();
-    setMode("filename");
+    dispatch({ mode: "filename", type: "mode-changed" });
     inputRef.current?.focus();
   }
 
   if (event.key === "/") {
     event.preventDefault();
-    setMode("text");
+    dispatch({ mode: "text", type: "mode-changed" });
     inputRef.current?.focus();
   }
 }
 
 async function handleDrop(
   event: DragEvent<HTMLElement>,
-  setFiles: (files: FileMetadata[]) => void,
-  setStatus: (status: string) => void,
+  dispatch: (action: ViewerAction) => void,
 ): Promise<void> {
   event.preventDefault();
 
@@ -667,10 +903,24 @@ async function handleDrop(
     .filter((file) => /\.(?:html?|md|markdown|mdx)$/iu.test(file.name));
 
   if (files.length === 0) {
-    setStatus("no supported files");
+    dispatch({ status: "no supported files", type: "status-changed" });
     return;
   }
 
+  try {
+    const result = await dropFiles(files);
+
+    dispatch({
+      files: result.files,
+      status: `added ${files.length}`,
+      type: "files-loaded",
+    });
+  } catch (error: unknown) {
+    dispatch({ status: formatError(error), type: "status-changed" });
+  }
+}
+
+async function dropFiles(files: File[]): Promise<FilesPayload> {
   const payload = await Promise.all(
     files.map(async (file) => ({
       content: await file.text(),
@@ -689,9 +939,7 @@ async function handleDrop(
     throw new Error(`drop failed: ${response.status}`);
   }
 
-  const result = await response.json() as FilesPayload;
-  setFiles(result.files);
-  setStatus(`added ${files.length}`);
+  return response.json() as Promise<FilesPayload>;
 }
 
 function viewModeLabel(mode: ViewMode): string {

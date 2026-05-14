@@ -360,6 +360,29 @@ dt {
   background: var(--vo-panel-muted);
 }
 
+.file-path-copy-feedback {
+  flex: 0 0 auto;
+  min-width: 44px;
+  color: var(--vo-muted);
+  font-size: 12px;
+  line-height: 20px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.file-path-copy-feedback.is-copied,
+.file-path-copy-feedback.is-failed {
+  opacity: 1;
+}
+
+.file-path-copy-feedback.is-copied {
+  color: var(--vo-green);
+}
+
+.file-path-copy-feedback.is-failed {
+  color: var(--vo-red);
+}
+
 .preview-header dl {
   display: flex;
   flex: 0 0 auto;

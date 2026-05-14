@@ -17,7 +17,7 @@ export type CommentTarget = {
   side?: AnnotationSide;
 };
 
-export type ReviewKind = "comment" | "suggestion";
+type ReviewKind = "comment" | "suggestion";
 
 export type SuggestionStatus = "applied" | "open";
 
@@ -29,7 +29,7 @@ export type ReviewSuggestion = {
   status: SuggestionStatus;
 };
 
-export type ReviewReply = {
+type ReviewReply = {
   body: string;
   id: string;
   kind: ReviewKind;

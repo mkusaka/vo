@@ -60,10 +60,6 @@ ${body}
 </html>`;
 }
 
-export function renderMarkdownBody(file: SourceFile): string {
-  return renderMarkdownDocument(file);
-}
-
 function renderMarkdownDocument(file: SourceFile): string {
   const source = file.kind === "mdx" ? preprocessMdx(file.content) : file.content;
   const { body, frontmatter } = stripFrontmatter(source);

@@ -44,7 +44,7 @@ export type WatchEntry = {
   pattern: string;
 };
 
-export type StoredSession = {
+type StoredSession = {
   version: 1;
   files: string[];
   watches: WatchEntry[];
