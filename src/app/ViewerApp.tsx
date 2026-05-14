@@ -16,7 +16,8 @@ import {
   type SearchMode,
   type SearchResult,
 } from "../search.mts";
-import type { FileMetadata } from "../types.mts";
+import type { FileMetadata, SupportedKind } from "../types.mts";
+import { fileKindShortLabel, fileKindTitle } from "./file-kind.mts";
 import type { SourcePayload } from "./source-types.mts";
 import {
   directoryPrefixes,
@@ -332,10 +333,12 @@ export function ViewerApp() {
             <ThemeToggle mode={themeMode} onChange={setThemeMode} />
             <ViewModeTabs mode={viewMode} onChange={setViewMode} />
             {selected ? (
-              <dl>
+              <dl aria-label="File metadata">
                 <div>
-                  <dt>Type</dt>
-                  <dd>{selected.kind}</dd>
+                  <dt className="visually-hidden">Type</dt>
+                  <dd>
+                    <FileKindBadge kind={selected.kind} />
+                  </dd>
                 </div>
                 <div>
                   <dt>Size</dt>
@@ -520,23 +523,60 @@ function FilePathButton({
   }
 
   return (
-    <button
-      className="file-path-button"
-      onClick={() => {
-        if (!navigator.clipboard) {
-          onCopyFailed(new Error("clipboard unavailable"));
-          return;
-        }
+    <div className="file-path-copy">
+      <span className="file-path" title={path}>{path}</span>
+      <button
+        aria-label="Copy file path"
+        className="file-path-copy-button"
+        onClick={() => {
+          if (!navigator.clipboard) {
+            onCopyFailed(new Error("clipboard unavailable"));
+            return;
+          }
 
-        void navigator.clipboard.writeText(path)
-          .then(onCopied)
-          .catch(onCopyFailed);
-      }}
-      title="Copy file path"
-      type="button"
+          void navigator.clipboard.writeText(path)
+            .then(onCopied)
+            .catch(onCopyFailed);
+        }}
+        title="Copy file path"
+        type="button"
+      >
+        <CopyIcon />
+      </button>
+    </div>
+  );
+}
+
+function FileKindBadge({ kind }: { kind: SupportedKind }) {
+  const title = `Type: ${fileKindTitle(kind)}`;
+
+  return (
+    <span
+      aria-label={title}
+      className={`file-kind-badge file-kind-${kind}`}
+      title={title}
     >
-      {path}
-    </button>
+      <FileKindIcon />
+      <span>{fileKindShortLabel(kind)}</span>
+    </span>
+  );
+}
+
+function FileKindIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
+      <path d="M4.75 1.75h4.7l3.8 3.8v8.7H4.75z" />
+      <path d="M9.25 1.9v3.85h3.85" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
+      <path d="M6.25 2.25h6.5v8.5h-6.5z" />
+      <path d="M3.25 5.25h6.5v8.5h-6.5z" />
+    </svg>
   );
 }
 
