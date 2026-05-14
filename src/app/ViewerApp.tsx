@@ -140,12 +140,7 @@ export function ViewerApp() {
     isDragging ? "is-dragging" : "",
   ].filter(Boolean).join(" ");
   const selectFile = (id: string) => {
-    const file = files.find((candidate) => candidate.id === id);
-
-    if (file) {
-      setRequestedPath(normalizeSharePath(file.relativePath));
-    }
-
+    setRequestedPath(undefined);
     setSelectedId(id);
   };
   const updateSelectedSource = async (
@@ -385,12 +380,17 @@ function TreePanel({
   const normalizedSelectedPath = selectedPath?.replaceAll("\\", "/");
   const pathsKey = paths.join("\0");
   const pathToIdRef = useRef(fileIdByTreePath(results.map((result) => result.file)));
+  const isSyncingSelectionRef = useRef(false);
   pathToIdRef.current = fileIdByTreePath(results.map((result) => result.file));
 
   const { model } = useFileTree({
     flattenEmptyDirectories: true,
     initialExpansion: "open",
     onSelectionChange(selectedPaths) {
+      if (isSyncingSelectionRef.current) {
+        return;
+      }
+
       const treePath = selectedPaths.at(-1);
       const id = treePath ? pathToIdRef.current.get(treePath) : undefined;
 
@@ -408,16 +408,22 @@ function TreePanel({
   }, [model, paths, pathsKey]);
 
   useEffect(() => {
-    for (const treePath of model.getSelectedPaths()) {
-      model.getItem(treePath)?.deselect();
-    }
+    isSyncingSelectionRef.current = true;
 
-    if (!normalizedSelectedPath || !paths.includes(normalizedSelectedPath)) {
-      return;
-    }
+    try {
+      for (const treePath of model.getSelectedPaths()) {
+        model.getItem(treePath)?.deselect();
+      }
 
-    model.getItem(normalizedSelectedPath)?.select();
-    model.focusPath(normalizedSelectedPath);
+      if (!normalizedSelectedPath || !paths.includes(normalizedSelectedPath)) {
+        return;
+      }
+
+      model.getItem(normalizedSelectedPath)?.select();
+      model.focusPath(normalizedSelectedPath);
+    } finally {
+      isSyncingSelectionRef.current = false;
+    }
   }, [model, normalizedSelectedPath, paths, pathsKey]);
 
   return (

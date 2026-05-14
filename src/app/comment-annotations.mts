@@ -173,13 +173,13 @@ export function createFileCommentAnnotations(
       && !thread.resolved
     ))
     .map<LineAnnotation<CommentAnnotationMetadata>>((comment) => ({
-      lineNumber: comment.lineNumber,
+      lineNumber: annotationLineNumber(comment),
       metadata: threadMetadata(comment, path),
     }));
 
   if (draftTarget != null && draftTarget.side == null) {
     annotations.push({
-      lineNumber: draftTarget.lineNumber,
+      lineNumber: annotationLineNumber(draftTarget),
       metadata: {
         charEnd: draftTarget.charEnd,
         charStart: draftTarget.charStart,
@@ -207,14 +207,14 @@ export function createDiffCommentAnnotations(
       && !comment.resolved
     ))
     .map<DiffLineAnnotation<CommentAnnotationMetadata>>((comment) => ({
-      lineNumber: comment.lineNumber,
+      lineNumber: annotationLineNumber(comment),
       metadata: threadMetadata(comment, path),
-      side: comment.side,
+      side: annotationSide(comment),
     }));
 
   if (draftTarget?.side != null) {
     annotations.push({
-      lineNumber: draftTarget.lineNumber,
+      lineNumber: annotationLineNumber(draftTarget),
       metadata: {
         charEnd: draftTarget.charEnd,
         charStart: draftTarget.charStart,
@@ -226,7 +226,7 @@ export function createDiffCommentAnnotations(
         selectedText: draftTarget.selectedText,
         side: draftTarget.side,
       },
-      side: draftTarget.side,
+      side: annotationSide(draftTarget),
     });
   }
 
@@ -334,6 +334,14 @@ function threadMetadata(
     side: thread.side,
     thread,
   };
+}
+
+function annotationLineNumber(target: CommentTarget): number {
+  return Math.max(target.lineNumber, target.endLineNumber);
+}
+
+function annotationSide(target: CommentTarget): AnnotationSide {
+  return target.endSide ?? target.side ?? "additions";
 }
 
 function normalizeRange(start: number, end: number): {

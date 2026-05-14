@@ -221,11 +221,16 @@ test("applySuggestionToContent supports character-level replacements", () => {
   );
 });
 
-test("createFileCommentAnnotations includes saved threads and the active draft", () => {
+test("createFileCommentAnnotations includes saved threads and anchors draft at the range end", () => {
   const threads: ReviewThread[] = [
     reviewThread("readme.md", 2, "Looks good"),
+    {
+      ...reviewThread("readme.md", 4, "Multi-line thread"),
+      endLineNumber: 6,
+      selectedText: "multi\nline\nthread",
+    },
     reviewThread("readme.md", 3, "Diff only", "additions"),
-    reviewThread("readme.md", 4, "Resolved", undefined, true),
+    reviewThread("readme.md", 7, "Resolved", undefined, true),
     reviewThread("other.md", 2, "Ignore this"),
   ];
 
@@ -235,12 +240,15 @@ test("createFileCommentAnnotations includes saved threads and the active draft",
     selectedText: "draft range",
   });
 
-  assert.equal(annotations.length, 2);
+  assert.equal(annotations.length, 3);
   assert.equal(annotations[0]?.lineNumber, 2);
   assert.equal(annotations[0]?.metadata.kind, "thread");
   assert.equal(annotations[0]?.metadata.thread?.body, "Looks good");
-  assert.equal(annotations[1]?.lineNumber, 5);
-  assert.deepEqual(annotations[1]?.metadata, {
+  assert.equal(annotations[1]?.lineNumber, 6);
+  assert.equal(annotations[1]?.metadata.lineNumber, 4);
+  assert.equal(annotations[1]?.metadata.endLineNumber, 6);
+  assert.equal(annotations[2]?.lineNumber, 6);
+  assert.deepEqual(annotations[2]?.metadata, {
     charEnd: undefined,
     charStart: undefined,
     endLineNumber: 6,
@@ -251,7 +259,7 @@ test("createFileCommentAnnotations includes saved threads and the active draft",
   });
 });
 
-test("createDiffCommentAnnotations includes side-aware threads and draft", () => {
+test("createDiffCommentAnnotations includes side-aware threads and anchors draft at the range end", () => {
   const threads: ReviewThread[] = [
     reviewThread("readme.md", 2, "File only"),
     reviewThread("readme.md", 3, "Add this", "additions"),
@@ -268,28 +276,30 @@ test("createDiffCommentAnnotations includes side-aware threads and draft", () =>
   ];
 
   const annotations = createDiffCommentAnnotations("readme.md", threads, {
-    endLineNumber: 8,
+    endLineNumber: 9,
+    endSide: "additions",
     lineNumber: 8,
-    side: "additions",
+    side: "deletions",
   });
 
   assert.equal(annotations.length, 3);
   assert.equal(annotations[0]?.side, "additions");
   assert.equal(annotations[0]?.metadata.thread?.body, "Add this");
+  assert.equal(annotations[1]?.lineNumber, 6);
   assert.equal(annotations[1]?.side, "deletions");
   assert.equal(annotations[1]?.metadata.thread?.kind, "suggestion");
   assert.deepEqual(annotations[2], {
-    lineNumber: 8,
+    lineNumber: 9,
     metadata: {
       charEnd: undefined,
       charStart: undefined,
-      endLineNumber: 8,
-      endSide: undefined,
+      endLineNumber: 9,
+      endSide: "additions",
       kind: "draft",
       lineNumber: 8,
       path: "readme.md",
       selectedText: undefined,
-      side: "additions",
+      side: "deletions",
     },
     side: "additions",
   });
