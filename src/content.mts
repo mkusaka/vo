@@ -203,10 +203,88 @@ export async function isGitIgnored(
 }
 
 export function preprocessMdx(content: string): string {
-  return content
-    .replace(/^import\s.+?;?\s*$/gmu, "")
-    .replace(/^export\s+(?:default\s+)?(?:const|let|var|function|class|type|interface)\b.*$/gmu, "")
+  return stripMdxModuleDeclarations(content)
     .replace(/<\/?[A-Z][\w.:-]*(?:\s[^<>]*)?\/?>/gu, (tag) => escapeHtml(tag));
+}
+
+function stripMdxModuleDeclarations(content: string): string {
+  const lines = content.split(/\r\n|\r|\n/u);
+  const kept: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+
+    if (/^\s*import\b/u.test(line)) {
+      index = skipImportDeclaration(lines, index);
+      continue;
+    }
+
+    if (/^\s*export\b/u.test(line)) {
+      index = skipExportDeclaration(lines, index);
+      continue;
+    }
+
+    kept.push(line);
+  }
+
+  return kept.join("\n");
+}
+
+function skipImportDeclaration(lines: readonly string[], start: number): number {
+  const firstLine = lines[start] ?? "";
+
+  if (
+    /;\s*$/u.test(firstLine)
+    || /^\s*import\s+["'][^"']+["']\s*$/u.test(firstLine)
+    || /\bfrom\s+["'][^"']+["']\s*;?\s*$/u.test(firstLine)
+  ) {
+    return start;
+  }
+
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (
+      /;\s*$/u.test(lines[index] ?? "")
+      || /\bfrom\s+["'][^"']+["']\s*;?\s*$/u.test(lines[index] ?? "")
+    ) {
+      return index;
+    }
+  }
+
+  return start;
+}
+
+function skipExportDeclaration(lines: readonly string[], start: number): number {
+  let depth = 0;
+
+  for (let index = start; index < lines.length; index += 1) {
+    depth += bracketDelta(lines[index] ?? "");
+
+    if (index === start && depth <= 0) {
+      return start;
+    }
+
+    if (index > start && depth <= 0) {
+      return index;
+    }
+  }
+
+  return start;
+}
+
+function bracketDelta(line: string): number {
+  let delta = 0;
+
+  for (const character of line) {
+    if (character === "{" || character === "(" || character === "[") {
+      delta += 1;
+    }
+
+    if (character === "}" || character === ")" || character === "]") {
+      delta -= 1;
+    }
+  }
+
+  return delta;
 }
 
 export function stripFrontmatter(content: string): {

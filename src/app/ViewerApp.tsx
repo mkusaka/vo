@@ -23,6 +23,11 @@ import {
   fileIdByTreePath,
   toTreePaths,
 } from "./tree-data.mts";
+import {
+  normalizeSharePath,
+  selectedPathFromSearch,
+  withSelectedFilePath,
+} from "./url-state.mts";
 
 const DiffsPanel = lazy(() => import("./DiffsPanel.tsx"));
 
@@ -46,6 +51,7 @@ type ThemeMode = "dark" | "light";
 
 export function ViewerApp() {
   const [files, setFiles] = useState<FileMetadata[]>([]);
+  const [requestedPath, setRequestedPath] = useState(initialSelectedPath);
   const [selectedId, setSelectedId] = useState<string>();
   const [html, setHtml] = useState("");
   const [source, setSource] = useState<SourcePayload>();
@@ -88,15 +94,36 @@ export function ViewerApp() {
   }, []);
 
   useEffect(() => {
+    const syncRequestedPath = () => {
+      setRequestedPath(selectedPathFromSearch(window.location.search));
+    };
+
+    window.addEventListener("popstate", syncRequestedPath);
+
+    return () => {
+      window.removeEventListener("popstate", syncRequestedPath);
+    };
+  }, []);
+
+  useEffect(() => {
     if (files.length === 0) {
       setSelectedId(undefined);
+      return;
+    }
+
+    const requestedFile = requestedPath
+      ? findFileByPath(files, requestedPath)
+      : undefined;
+
+    if (requestedFile && requestedFile.id !== selectedId) {
+      setSelectedId(requestedFile.id);
       return;
     }
 
     if (!selectedId || !files.some((file) => file.id === selectedId)) {
       setSelectedId(files[0]?.id);
     }
-  }, [files, selectedId]);
+  }, [files, requestedPath, selectedId]);
 
   const results = useMemo(
     () => searchFiles(files, query, mode),
@@ -111,6 +138,15 @@ export function ViewerApp() {
     `theme-${themeMode}`,
     isDragging ? "is-dragging" : "",
   ].filter(Boolean).join(" ");
+  const selectFile = (id: string) => {
+    const file = files.find((candidate) => candidate.id === id);
+
+    if (file) {
+      setRequestedPath(normalizeSharePath(file.relativePath));
+    }
+
+    setSelectedId(id);
+  };
   const updateSelectedSource = async (
     id: string,
     content: string,
@@ -136,6 +172,19 @@ export function ViewerApp() {
 
     return payload.source;
   };
+
+  useEffect(() => {
+    if (!selected || typeof window === "undefined") {
+      return;
+    }
+
+    const nextUrl = withSelectedFilePath(window.location.href, selected.relativePath);
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [selected]);
 
   useEffect(() => {
     if (!selectedId || !selectedRefreshKey) {
@@ -255,13 +304,13 @@ export function ViewerApp() {
 
         <div className="tree-panel">
           <TreePanel
-            onSelectFile={setSelectedId}
+            onSelectFile={selectFile}
             results={results}
             selectedPath={selected?.relativePath}
           />
           <TextHits
             mode={mode}
-            onSelectFile={setSelectedId}
+            onSelectFile={selectFile}
             query={query}
             results={results}
             selectedId={selectedId}
@@ -624,4 +673,21 @@ function formatBytes(size: number): string {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function initialSelectedPath(): string | undefined {
+  return typeof window === "undefined"
+    ? undefined
+    : selectedPathFromSearch(window.location.search);
+}
+
+function findFileByPath(
+  files: readonly FileMetadata[],
+  requestedPath: string,
+): FileMetadata | undefined {
+  const normalizedRequestedPath = normalizeSharePath(requestedPath);
+
+  return files.find((file) => (
+    normalizeSharePath(file.relativePath) === normalizedRequestedPath
+  ));
 }

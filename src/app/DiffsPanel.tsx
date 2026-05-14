@@ -656,13 +656,28 @@ function SuggestionBlock({
         <span>{suggestionStatusLabel(suggestion.status)}</span>
       </div>
       <div className="suggestion-diff">
-        <pre data-kind="old">{suggestion.originalText ?? originalText}</pre>
-        <textarea
-          aria-label="Suggested replacement"
-          className="annotation-suggestion-input"
-          onChange={(event) => onChange(event.currentTarget.value)}
-          value={suggestion.replacement}
-        />
+        <div className="suggestion-pane suggestion-pane-old">
+          <div className="suggestion-pane-header">
+            <span>Current</span>
+            <code>-</code>
+          </div>
+          <SuggestionLines marker="-" text={suggestion.originalText ?? originalText} />
+        </div>
+        <div className="suggestion-pane suggestion-pane-new">
+          <div className="suggestion-pane-header">
+            <span>Suggested</span>
+            <code>+</code>
+          </div>
+          <div className="suggestion-edit-row">
+            <span aria-hidden="true" className="suggestion-line-marker">+</span>
+            <textarea
+              aria-label="Suggested replacement"
+              className="annotation-suggestion-input"
+              onChange={(event) => onChange(event.currentTarget.value)}
+              value={suggestion.replacement}
+            />
+          </div>
+        </div>
       </div>
       <div className="annotation-actions">
         {suggestion.status === "applied" ? (
@@ -683,6 +698,27 @@ function SuggestionBlock({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function SuggestionLines({
+  marker,
+  text,
+}: {
+  marker: "+" | "-";
+  text: string;
+}) {
+  const lines = text.length === 0 ? [""] : text.split(/\r\n|\r|\n/u);
+
+  return (
+    <div className="suggestion-code">
+      {lines.map((line, index) => (
+        <div className="suggestion-line" key={`${index}:${line}`}>
+          <span aria-hidden="true" className="suggestion-line-marker">{marker}</span>
+          <code>{line || " "}</code>
+        </div>
+      ))}
     </div>
   );
 }

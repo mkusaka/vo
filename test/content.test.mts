@@ -107,7 +107,9 @@ test("loadSourceFiles extracts titles and searchable text", async () => {
 
 test("preprocessMdx strips module lines and escapes JSX", () => {
   const output = preprocessMdx(`import X from "./x";
-export const meta = {};
+export const meta = {
+  title: "Example",
+};
 
 # Title
 
@@ -115,7 +117,23 @@ export const meta = {};
 
   assert.doesNotMatch(output, /import X/u);
   assert.doesNotMatch(output, /export const meta/u);
+  assert.doesNotMatch(output, /title: "Example"/u);
   assert.match(output, /&lt;Callout tone=&quot;info&quot;&gt;Hello&lt;\/Callout&gt;/u);
+});
+
+test("preprocessMdx strips multiline imports and exported functions", () => {
+  const output = preprocessMdx(`import {
+  Callout,
+} from "./components"
+
+export function Example() {
+  return <Callout />;
+}
+
+# Page`);
+
+  assert.doesNotMatch(output, /Callout/u);
+  assert.match(output.trim(), /^# Page$/u);
 });
 
 test("toSearchableText removes markup noise", () => {

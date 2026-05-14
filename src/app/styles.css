@@ -552,23 +552,94 @@ dt {
 
 .suggestion-diff {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
-.suggestion-diff pre {
-  margin: 0;
-  overflow: auto;
-  padding: 8px;
+.suggestion-pane {
+  overflow: hidden;
+  border: 1px solid var(--vo-border);
   border-radius: 6px;
+  background: var(--vo-panel);
+}
+
+.suggestion-pane-old {
+  border-color: rgb(255 46 63 / 28%);
+  background: rgb(255 46 63 / 8%);
+}
+
+.suggestion-pane-new {
+  border-color: rgb(22 169 148 / 32%);
+  background: rgb(22 169 148 / 10%);
+}
+
+.suggestion-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  padding: 4px 8px;
+  color: var(--vo-muted);
+  border-bottom: 1px solid var(--vo-border);
+  background: rgb(255 255 255 / 45%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.theme-dark .suggestion-pane-header {
+  background: rgb(255 255 255 / 4%);
+}
+
+.suggestion-pane-header code {
+  font-family: var(--diffs-font-family);
+  font-size: 12px;
+}
+
+.suggestion-code {
+  max-height: 168px;
+  overflow: auto;
+  padding: 6px 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.suggestion-line,
+.suggestion-edit-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.suggestion-line-marker {
+  color: var(--vo-muted);
+  font-family: var(--diffs-font-family);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+  user-select: none;
+}
+
+.suggestion-pane-old .suggestion-line-marker,
+.suggestion-pane-old .suggestion-pane-header code {
+  color: var(--vo-red);
+}
+
+.suggestion-pane-new .suggestion-line-marker,
+.suggestion-pane-new .suggestion-pane-header code {
+  color: var(--vo-green);
+}
+
+.suggestion-line code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--vo-text);
   font-family: var(--diffs-font-family);
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
 }
 
-.suggestion-diff pre[data-kind="old"] {
-  border: 1px solid rgb(255 46 63 / 26%);
-  background: rgb(255 46 63 / 10%);
+.suggestion-edit-row {
+  padding: 6px 0;
 }
 
 .annotation-card textarea {
@@ -585,8 +656,10 @@ dt {
 
 .annotation-card .annotation-suggestion-input {
   min-height: 84px;
-  border: 1px solid rgb(22 169 148 / 28%);
-  background: rgb(22 169 148 / 12%);
+  border: 0;
+  border-left: 1px solid rgb(22 169 148 / 22%);
+  border-radius: 0;
+  background: transparent;
   font-family: var(--diffs-font-family);
   font-size: 12px;
 }

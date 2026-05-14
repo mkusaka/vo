@@ -53,6 +53,8 @@ intentionally want ignored files to appear.
 - File search filters the tree with a fuzzy path matcher for GitHub `t`-style
   navigation.
 - Text search scans extracted HTML/Markdown/MDX text.
+- The selected file is reflected in the URL as `?file=...` so the current view
+  can be shared.
 - `Render` shows the generated document iframe.
 - `Annotate` shows the whole source file with `@pierre/diffs`; use the gutter
   `+`, drag-select lines, or click a token to start a review thread.
