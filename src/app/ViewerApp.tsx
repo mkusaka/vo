@@ -910,7 +910,7 @@ function DocumentBody({
       <iframe
         key={selectedId}
         referrerPolicy="no-referrer"
-        sandbox="allow-scripts"
+        sandbox="allow-scripts allow-popups"
         srcDoc={html}
         title={selected.title}
       />

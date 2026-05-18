@@ -13,7 +13,15 @@ document.addEventListener("click", (event) => {
   }
 
   const href = link.getAttribute("href");
-  if (!href?.startsWith("#")) return;
+  if (!href) return;
+
+  if (href.startsWith("http://") || href.startsWith("https://") || href.startsWith("//")) {
+    event.preventDefault();
+    window.open(href, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  if (!href.startsWith("#")) return;
 
   const id = href.slice(1);
   const target =
