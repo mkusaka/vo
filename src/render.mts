@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { marked } from "marked";
 
 import {
@@ -48,6 +50,26 @@ export function renderDocument(file: SourceFile, origin: string): string {
   <article class="${file.kind === "html" ? "html-document" : "markdown-body"}">
 ${body}
   </article>
+  <script>
+    document.addEventListener('click', function(event) {
+      var link = event.target.closest('a');
+      if (!link) return;
+      var nav = link.dataset.voNavigate;
+      if (nav) {
+        event.preventDefault();
+        window.parent.postMessage({ type: 'vo:navigate', relativePath: nav }, '*');
+        return;
+      }
+      var href = link.getAttribute('href');
+      if (!href || !href.startsWith('#')) return;
+      var id = href.slice(1);
+      var target = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
+      if (target) {
+        event.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  </script>
   <script type="module">
     const diagrams = document.querySelectorAll(".mermaid");
     if (diagrams.length > 0) {
@@ -63,12 +85,40 @@ ${body}
 function renderMarkdownDocument(file: SourceFile): string {
   const source = file.kind === "mdx" ? preprocessMdx(file.content) : file.content;
   const { body, frontmatter } = stripFrontmatter(source);
-  const rendered = marked.parse(body, { async: false });
+  const rendered = rewriteRelativeFileLinks(
+    String(marked.parse(body, { async: false })),
+    file.relativePath,
+  );
   const metadata = frontmatter
     ? `<details class="frontmatter"><summary>Frontmatter</summary><pre>${escapeHtml(frontmatter)}</pre></details>\n`
     : "";
 
-  return `${metadata}${String(rendered)}`;
+  return `${metadata}${rendered}`;
+}
+
+function rewriteRelativeFileLinks(html: string, relativePath: string): string {
+  const fileDir = path.posix.dirname(relativePath.replaceAll(path.sep, "/"));
+
+  return html.replace(/\bhref="([^"]*)"/giu, (match, href: string) => {
+    if (
+      !href
+      || href.startsWith("#")
+      || href.startsWith("/")
+      || /^[a-z][a-z0-9+\-.]*:/iu.test(href)
+    ) {
+      return match;
+    }
+
+    const pathPart = href.split("#")[0].split("?")[0];
+
+    if (!/\.(?:md|markdown|mdx|html?)$/iu.test(pathPart)) {
+      return match;
+    }
+
+    const targetPath = path.posix.join(fileDir, pathPart);
+
+    return `data-vo-navigate="${escapeAttribute(targetPath)}" href="#"`;
+  });
 }
 
 function injectBase(html: string, baseHref: string): string {
