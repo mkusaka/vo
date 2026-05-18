@@ -26,9 +26,13 @@ import {
   toTreePaths,
 } from "./tree-data.mts";
 import {
+  viewModeFromSharedCommentHash,
+} from "./comment-annotations.mts";
+import {
   normalizeSharePath,
   selectedPathFromSearch,
-  withSelectedFilePath,
+  viewModeFromSearch,
+  withViewerUrlState,
 } from "./url-state.mts";
 
 const DiffsPanel = lazy(() => import("./DiffsPanel.tsx"));
@@ -281,9 +285,10 @@ function useViewerController(): ViewerController {
     requestedPath,
     selectedId,
     themeMode,
+    viewMode,
   } = state;
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const pendingHashRef = useRef<string>("");
+  const pendingHashRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -320,17 +325,23 @@ function useViewerController(): ViewerController {
   }, []);
 
   useEffect(() => {
-    const syncRequestedPath = () => {
+    const syncUrlState = () => {
       dispatch({
         requestedPath: selectedPathFromSearch(window.location.search),
         type: "requested-path-changed",
       });
+      dispatch({
+        type: "view-mode-changed",
+        viewMode: viewModeFromLocation(),
+      });
     };
 
-    window.addEventListener("popstate", syncRequestedPath);
+    window.addEventListener("hashchange", syncUrlState);
+    window.addEventListener("popstate", syncUrlState);
 
     return () => {
-      window.removeEventListener("popstate", syncRequestedPath);
+      window.removeEventListener("hashchange", syncUrlState);
+      window.removeEventListener("popstate", syncUrlState);
     };
   }, []);
 
@@ -362,7 +373,9 @@ function useViewerController(): ViewerController {
       );
 
       if (targetFile) {
-        pendingHashRef.current = typeof event.data.hash === "string" ? (event.data.hash as string) : "";
+        pendingHashRef.current = typeof event.data.hash === "string"
+          ? (event.data.hash as string)
+          : "";
         dispatch({ selectedId: targetFile.id, type: "selected-file-chosen" });
       }
     };
@@ -396,6 +409,7 @@ function useViewerController(): ViewerController {
     isDragging ? "is-dragging" : "",
   ].filter(Boolean).join(" ");
   const selectFile = (id: string) => {
+    pendingHashRef.current = "";
     dispatch({ selectedId: id, type: "selected-file-chosen" });
   };
   const updateSelectedSource = async (
@@ -421,14 +435,18 @@ function useViewerController(): ViewerController {
     }
 
     const hash = pendingHashRef.current;
-    pendingHashRef.current = "";
-    const nextUrl = withSelectedFilePath(window.location.href, selected.relativePath, hash);
+    pendingHashRef.current = undefined;
+    const nextUrl = withViewerUrlState(window.location.href, {
+      filePath: selected.relativePath,
+      hash,
+      viewMode,
+    });
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
     if (nextUrl !== currentUrl) {
       window.history.pushState(null, "", nextUrl);
     }
-  }, [selected]);
+  }, [selected, viewMode]);
 
   useEffect(() => {
     if (!selectedId || !selectedRefreshKey) {
@@ -498,7 +516,7 @@ function createInitialViewerState(): ViewerState {
     requestedPath: initialSelectedPath(),
     status: "ready",
     themeMode: "light",
-    viewMode: "render",
+    viewMode: initialViewMode(),
   };
 }
 
@@ -1038,6 +1056,16 @@ function initialSelectedPath(): string | undefined {
   return typeof window === "undefined"
     ? undefined
     : selectedPathFromSearch(window.location.search);
+}
+
+function initialViewMode(): ViewMode {
+  return typeof window === "undefined" ? "render" : viewModeFromLocation();
+}
+
+function viewModeFromLocation(): ViewMode {
+  return viewModeFromSearch(window.location.search)
+    ?? viewModeFromSharedCommentHash(window.location.search, window.location.hash)
+    ?? "render";
 }
 
 function findFileByPath(

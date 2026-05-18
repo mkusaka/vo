@@ -15,9 +15,12 @@ import {
   appendSuggestionBlock,
   applySuggestionToContent,
   bodyWithoutSuggestionBlock,
+  commentHashFromReviewThreads,
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
+  hasSharedCommentHash,
   parseSuggestionBlock,
+  reviewThreadsFromCommentHash,
   selectedTextForTarget,
   targetFromDiffRange,
   targetFromDiffToken,
@@ -55,7 +58,7 @@ type DiffsAction =
   | { type: "pending-suggestion-changed"; pendingSuggestionId?: string }
   | { type: "reply-draft-changed"; id: string; body: string }
   | { type: "selected-lines-changed"; selectedLines: SelectedLineRange | null }
-  | { type: "source-changed" }
+  | { type: "source-changed"; threads: ReviewThread[] }
   | { type: "thread-added"; thread: ReviewThread }
   | {
     type: "thread-updated";
@@ -86,12 +89,52 @@ export default function DiffsPanel({
   } = state;
 
   useEffect(() => {
-    dispatch({ type: "source-changed" });
-  }, [source?.id]);
+    dispatch({
+      threads: source ? reviewThreadsFromCurrentUrl(source.relativePath) : [],
+      type: "source-changed",
+    });
+  }, [source?.id, source?.relativePath]);
+
+  useEffect(() => {
+    if (!source || typeof window === "undefined") {
+      return;
+    }
+
+    const syncSharedComments = () => {
+      dispatch({
+        threads: reviewThreadsFromCurrentUrl(source.relativePath),
+        type: "source-changed",
+      });
+    };
+
+    window.addEventListener("hashchange", syncSharedComments);
+    window.addEventListener("popstate", syncSharedComments);
+
+    return () => {
+      window.removeEventListener("hashchange", syncSharedComments);
+      window.removeEventListener("popstate", syncSharedComments);
+    };
+  }, [source]);
 
   useEffect(() => {
     dispatch({ type: "view-mode-changed" });
   }, [viewMode]);
+
+  useEffect(() => {
+    if (!source || typeof window === "undefined") {
+      return;
+    }
+
+    const nextUrl = withCommentHash(
+      window.location.href,
+      commentHashFromReviewThreads(threads),
+    );
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [source, threads]);
 
   const currentFile = useMemo(
     () => source ? toFileContents(source, "current") : undefined,
@@ -510,7 +553,10 @@ function diffsReducer(state: DiffsState, action: DiffsAction): DiffsState {
     case "selected-lines-changed":
       return { ...state, selectedLines: action.selectedLines };
     case "source-changed":
-      return createInitialDiffsState();
+      return {
+        ...createInitialDiffsState(),
+        threads: action.threads,
+      };
     case "thread-added":
       return {
         ...state,
@@ -902,6 +948,29 @@ function replaceSuggestionBlock(body: string, replacement: string): string {
   const replacementBlock = appendSuggestionBlock("", replacement);
 
   return commentBody ? `${commentBody}\n\n${replacementBlock}` : replacementBlock;
+}
+
+function reviewThreadsFromCurrentUrl(sourcePath: string): ReviewThread[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  return reviewThreadsFromCommentHash(window.location.hash, {
+    search: window.location.search,
+    sourcePath,
+  });
+}
+
+function withCommentHash(href: string, commentHash: string): string {
+  const url = new URL(href, "http://vo.local");
+
+  if (commentHash) {
+    url.hash = commentHash;
+  } else if (hasSharedCommentHash(url.hash)) {
+    url.hash = "";
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function createFileDiff(

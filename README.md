@@ -55,6 +55,8 @@ intentionally want ignored files to appear.
 - Text search scans extracted HTML/Markdown/MDX text.
 - The selected file is reflected in the URL as `?file=...` so the current view
   can be shared.
+- The current display mode is reflected in the URL as
+  `?view=raw|annotation|diff`.
 - `Render` shows the generated document iframe.
 - `Annotate` shows the whole source file with `@pierre/diffs`; use the gutter
   `+`, drag-select lines, or click a token to start a review thread.
@@ -64,6 +66,11 @@ intentionally want ignored files to appear.
   `suggestion` blocks for a line, multiple lines, or a token range. Suggestions
   can be added from the first comment or a reply, applied to the in-session
   source, and reverted.
+- Review threads are reflected in the URL hash as compressed `#comments=...`
+  data with their file, line, side, selected text, replies, and suggestion
+  context. Opening the URL restores the comments immediately. A single raw hash
+  comment is also accepted, for example
+  `?file=README.md&view=annotation&line=3#comment=https%3A%2F%2Fgithub.com%2Fmkusaka%2Fccusageview`.
 - Click the file path in the preview header to copy it.
 - The viewer chrome and `@pierre/trees` / `@pierre/diffs` panes can be switched
   between light and dark mode from the preview toolbar.

@@ -5,15 +5,19 @@ import {
   appendSuggestionBlock,
   applySuggestionToContent,
   bodyWithoutSuggestionBlock,
+  commentHashFromReviewThreads,
   createDiffCommentAnnotations,
   createFileCommentAnnotations,
   createSuggestionBlock,
+  hasSharedCommentHash,
   parseSuggestionBlock,
+  reviewThreadsFromCommentHash,
   selectedTextForTarget,
   targetFromDiffRange,
   targetFromDiffToken,
   targetFromFileRange,
   targetFromFileToken,
+  viewModeFromSharedCommentHash,
   type ReviewThread,
 } from "../src/app/comment-annotations.mts";
 
@@ -303,6 +307,155 @@ test("createDiffCommentAnnotations includes side-aware threads and anchors draft
     },
     side: "additions",
   });
+});
+
+test("commentHashFromReviewThreads serializes unresolved comments with context", () => {
+  const threads: ReviewThread[] = [
+    {
+      ...reviewThread("readme.md", 4, "Check this"),
+      charEnd: 11,
+      charStart: 3,
+      endLineNumber: 6,
+      replies: [
+        {
+          body: "follow-up",
+          id: "readme.md:4:reply:1",
+          kind: "comment",
+        },
+      ],
+      selectedText: "selected\ntext",
+    },
+    reviewThread("readme.md", 9, "Resolved", undefined, true),
+  ];
+  const hash = commentHashFromReviewThreads(threads);
+
+  assert.equal(hasSharedCommentHash(hash), true);
+  assert.match(hash, /^#comments=.+/u);
+  assert.equal(hash.includes("%7B"), false);
+  assert.equal(hash.includes('"comments"'), false);
+  assert.equal(viewModeFromSharedCommentHash("?file=readme.md", hash), "annotate");
+  assert.deepEqual(
+    reviewThreadsFromCommentHash(hash, {
+      search: "?file=readme.md",
+      sourcePath: "readme.md",
+    }),
+    [
+      {
+        body: "Check this",
+        charEnd: 11,
+        charStart: 3,
+        endLineNumber: 6,
+        endSide: undefined,
+        id: "readme.md:4",
+        kind: "comment",
+        lineNumber: 4,
+        path: "readme.md",
+        replies: [
+          {
+            body: "follow-up",
+            id: "readme.md:4:reply:1",
+            kind: "comment",
+            suggestion: undefined,
+          },
+        ],
+        resolved: false,
+        selectedText: "selected\ntext",
+        side: undefined,
+        suggestion: undefined,
+      },
+    ],
+  );
+});
+
+test("reviewThreadsFromCommentHash still reads the legacy uncompressed JSON hash", () => {
+  const legacyHash = `#comments=${encodeURIComponent(JSON.stringify({
+    comments: [
+      {
+        body: "Legacy comment",
+        endLineNumber: 2,
+        id: "legacy:1",
+        kind: "comment",
+        lineNumber: 2,
+        path: "readme.md",
+        replies: [],
+        resolved: false,
+      },
+    ],
+    v: 1,
+  }))}`;
+
+  assert.deepEqual(
+    reviewThreadsFromCommentHash(legacyHash, {
+      search: "?file=readme.md",
+      sourcePath: "readme.md",
+    }),
+    [
+      {
+        body: "Legacy comment",
+        charEnd: undefined,
+        charStart: undefined,
+        endLineNumber: 2,
+        endSide: undefined,
+        id: "legacy:1",
+        kind: "comment",
+        lineNumber: 2,
+        path: "readme.md",
+        replies: [],
+        resolved: false,
+        selectedText: undefined,
+        side: undefined,
+        suggestion: undefined,
+      },
+    ],
+  );
+});
+
+test("reviewThreadsFromCommentHash opens a raw hash comment at the query context", () => {
+  const hash = "#comment=https%3A%2F%2Fgithub.com%2Fmkusaka%2Fccusageview";
+
+  assert.equal(hasSharedCommentHash(hash), true);
+  assert.equal(
+    viewModeFromSharedCommentHash("?file=readme.md&line=3&side=additions", hash),
+    "diff",
+  );
+  assert.deepEqual(
+    reviewThreadsFromCommentHash(hash, {
+      search: "?file=readme.md&line=3&endLine=5&side=additions",
+      sourcePath: "readme.md",
+    }),
+    [
+      {
+        body: "https://github.com/mkusaka/ccusageview",
+        charEnd: undefined,
+        charStart: undefined,
+        endLineNumber: 5,
+        endSide: undefined,
+        id: "url:1:readme.md:3:158pv9k",
+        kind: "comment",
+        lineNumber: 3,
+        path: "readme.md",
+        replies: [],
+        resolved: false,
+        selectedText: undefined,
+        side: "additions",
+        suggestion: undefined,
+      },
+    ],
+  );
+});
+
+test("reviewThreadsFromCommentHash ignores comments for another selected source", () => {
+  const hash = commentHashFromReviewThreads([
+    reviewThread("other.md", 2, "For another file"),
+  ]);
+
+  assert.deepEqual(
+    reviewThreadsFromCommentHash(hash, {
+      search: "?file=readme.md",
+      sourcePath: "readme.md",
+    }),
+    [],
+  );
 });
 
 function reviewThread(

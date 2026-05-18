@@ -6,6 +6,13 @@ import type {
   SelectedLineRange,
   TokenEventBase,
 } from "@pierre/diffs";
+import lzString from "lz-string";
+
+import { normalizeSharePath } from "./url-state.mts";
+
+const COMMENTS_HASH_PREFIX = "comments=";
+const COMMENT_HASH_PREFIX = "comment=";
+const SHARED_COMMENTS_VERSION = 1;
 
 export type CommentTarget = {
   charEnd?: number;
@@ -57,6 +64,48 @@ export type SuggestionBlock = {
   replacement: string;
 };
 
+type SharedCommentPayload = {
+  comments?: unknown;
+  v?: unknown;
+};
+
+type SharedReviewComment = {
+  body?: unknown;
+  charEnd?: unknown;
+  charStart?: unknown;
+  endLineNumber?: unknown;
+  endSide?: unknown;
+  id?: unknown;
+  kind?: unknown;
+  lineNumber?: unknown;
+  path?: unknown;
+  replies?: unknown;
+  resolved?: unknown;
+  selectedText?: unknown;
+  side?: unknown;
+  suggestion?: unknown;
+};
+
+type SharedReviewReply = {
+  body?: unknown;
+  id?: unknown;
+  kind?: unknown;
+  suggestion?: unknown;
+};
+
+type SharedReviewSuggestion = {
+  appliedAfterContent?: unknown;
+  appliedBeforeContent?: unknown;
+  originalText?: unknown;
+  replacement?: unknown;
+  status?: unknown;
+};
+
+type SharedCommentContext = {
+  search: string;
+  sourcePath?: string;
+};
+
 export type CommentAnnotationMetadata = {
   kind: "draft" | "thread";
   body?: string;
@@ -72,6 +121,62 @@ export type CommentAnnotationMetadata = {
   side?: AnnotationSide;
   thread?: ReviewThread;
 };
+
+export function hasSharedCommentHash(hash: string): boolean {
+  const payload = hashPayload(hash);
+
+  return (
+    payload.startsWith(COMMENTS_HASH_PREFIX)
+    || payload.startsWith(COMMENT_HASH_PREFIX)
+    || isRawCommentBody(payload)
+  );
+}
+
+export function viewModeFromSharedCommentHash(
+  search: string,
+  hash: string,
+): "annotate" | "diff" | undefined {
+  const comments = sharedCommentsFromHash(hash, {
+    search,
+    sourcePath: new URLSearchParams(search).get("file") ?? undefined,
+  });
+
+  if (comments.length === 0) {
+    return undefined;
+  }
+
+  return comments.some((comment) => parseAnnotationSide(comment.side) != null)
+    ? "diff"
+    : "annotate";
+}
+
+export function reviewThreadsFromCommentHash(
+  hash: string,
+  context: SharedCommentContext,
+): ReviewThread[] {
+  return sharedCommentsFromHash(hash, context).flatMap((comment, index) => {
+    const thread = reviewThreadFromSharedComment(comment, index, context);
+
+    return thread ? [thread] : [];
+  });
+}
+
+export function commentHashFromReviewThreads(
+  threads: readonly ReviewThread[],
+): string {
+  const comments = threads
+    .filter((thread) => !thread.resolved)
+    .map(sharedCommentFromThread);
+
+  if (comments.length === 0) {
+    return "";
+  }
+
+  return `#${COMMENTS_HASH_PREFIX}${lzString.compressToEncodedURIComponent(JSON.stringify({
+    comments,
+    v: SHARED_COMMENTS_VERSION,
+  }))}`;
+}
 
 export function createSuggestionBlock(replacement: string): string {
   const fence = replacement.includes("```") ? "~~~" : "```";
@@ -313,6 +418,315 @@ export function applySuggestionToContent(
     content: joinLines(nextLines, hadFinalNewline),
     originalText,
   };
+}
+
+function sharedCommentsFromHash(
+  hash: string,
+  context: SharedCommentContext,
+): SharedReviewComment[] {
+  const payload = hashPayload(hash);
+
+  if (payload.startsWith(COMMENTS_HASH_PREFIX)) {
+    const rawJson = decodeCommentsPayload(payload.slice(COMMENTS_HASH_PREFIX.length));
+    const parsed = parseJson(rawJson);
+    const comments = Array.isArray(parsed)
+      ? parsed
+      : isRecord(parsed)
+        ? (parsed as SharedCommentPayload).comments
+        : undefined;
+
+    return Array.isArray(comments)
+      ? comments.filter(isRecord).map((comment) => comment as SharedReviewComment)
+      : [];
+  }
+
+  const rawBody = rawCommentBodyFromHashPayload(payload);
+
+  if (!rawBody) {
+    return [];
+  }
+
+  return [sharedCommentFromRawBody(rawBody, context)];
+}
+
+function decodeCommentsPayload(encoded: string): string {
+  return lzString.decompressFromEncodedURIComponent(encoded) ?? safeDecodeURIComponent(encoded);
+}
+
+function reviewThreadFromSharedComment(
+  comment: SharedReviewComment,
+  index: number,
+  context: SharedCommentContext,
+): ReviewThread | undefined {
+  const body = stringValue(comment.body)?.trim();
+
+  if (!body) {
+    return undefined;
+  }
+
+  const path = normalizeSharePath(
+    stringValue(comment.path)
+      ?? new URLSearchParams(context.search).get("file")
+      ?? context.sourcePath
+      ?? "",
+  );
+
+  if (!path) {
+    return undefined;
+  }
+
+  const sourcePath = context.sourcePath ? normalizeSharePath(context.sourcePath) : undefined;
+
+  if (sourcePath && path !== sourcePath) {
+    return undefined;
+  }
+
+  const lineNumber = positiveInteger(comment.lineNumber) ?? 1;
+  const endLineNumber = Math.max(
+    lineNumber,
+    positiveInteger(comment.endLineNumber) ?? lineNumber,
+  );
+  const suggestion = reviewSuggestionFromShared(comment.suggestion)
+    ?? suggestionFromBody(body);
+  const kind = reviewKindValue(comment.kind) ?? (suggestion ? "suggestion" : "comment");
+  const id = stringValue(comment.id)
+    ?? `url:${index + 1}:${path}:${lineNumber}:${stableHash(body)}`;
+
+  return {
+    body,
+    charEnd: nonNegativeInteger(comment.charEnd),
+    charStart: nonNegativeInteger(comment.charStart),
+    endLineNumber,
+    endSide: parseAnnotationSide(comment.endSide),
+    id,
+    kind,
+    lineNumber,
+    path,
+    replies: repliesFromShared(comment.replies, id),
+    resolved: comment.resolved === true,
+    selectedText: stringValue(comment.selectedText),
+    side: parseAnnotationSide(comment.side),
+    suggestion,
+  };
+}
+
+function sharedCommentFromRawBody(
+  body: string,
+  context: SharedCommentContext,
+): SharedReviewComment {
+  const params = new URLSearchParams(context.search);
+  const lineNumber = positiveInteger(params.get("line")) ?? 1;
+
+  return {
+    body,
+    charEnd: nonNegativeInteger(params.get("charEnd")),
+    charStart: nonNegativeInteger(params.get("charStart")),
+    endLineNumber: Math.max(
+      lineNumber,
+      positiveInteger(params.get("endLine")) ?? lineNumber,
+    ),
+    endSide: params.get("endSide") ?? undefined,
+    lineNumber,
+    path: params.get("file") ?? context.sourcePath,
+    selectedText: params.get("selectedText") ?? params.get("text") ?? undefined,
+    side: params.get("side") ?? undefined,
+  };
+}
+
+function sharedCommentFromThread(thread: ReviewThread): SharedReviewComment {
+  return {
+    body: thread.body,
+    charEnd: thread.charEnd,
+    charStart: thread.charStart,
+    endLineNumber: thread.endLineNumber,
+    endSide: thread.endSide,
+    id: thread.id,
+    kind: thread.kind,
+    lineNumber: thread.lineNumber,
+    path: thread.path,
+    replies: thread.replies.map(sharedReplyFromReply),
+    resolved: thread.resolved,
+    selectedText: thread.selectedText,
+    side: thread.side,
+    suggestion: sharedSuggestionFromSuggestion(thread.suggestion),
+  };
+}
+
+function sharedReplyFromReply(reply: ReviewThread["replies"][number]): SharedReviewReply {
+  return {
+    body: reply.body,
+    id: reply.id,
+    kind: reply.kind,
+    suggestion: sharedSuggestionFromSuggestion(reply.suggestion),
+  };
+}
+
+function sharedSuggestionFromSuggestion(
+  suggestion: ReviewSuggestion | undefined,
+): SharedReviewSuggestion | undefined {
+  if (!suggestion) {
+    return undefined;
+  }
+
+  return {
+    originalText: suggestion.originalText,
+    replacement: suggestion.replacement,
+    status: suggestion.status,
+  };
+}
+
+function repliesFromShared(
+  value: unknown,
+  threadId: string,
+): ReviewThread["replies"] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((candidate, index) => {
+    if (!isRecord(candidate)) {
+      return [];
+    }
+
+    const reply = candidate as SharedReviewReply;
+    const body = stringValue(reply.body)?.trim();
+
+    if (!body) {
+      return [];
+    }
+
+    const suggestion = reviewSuggestionFromShared(reply.suggestion)
+      ?? suggestionFromBody(body);
+    const kind = reviewKindValue(reply.kind)
+      ?? (suggestion ? "suggestion" : "comment");
+
+    return [{
+      body,
+      id: stringValue(reply.id)
+        ?? `${threadId}:reply:${index + 1}:${stableHash(body)}`,
+      kind,
+      suggestion,
+    }];
+  });
+}
+
+function reviewSuggestionFromShared(value: unknown): ReviewSuggestion | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const suggestion = value as SharedReviewSuggestion;
+  const replacement = stringValue(suggestion.replacement);
+
+  if (replacement == null) {
+    return undefined;
+  }
+
+  return {
+    originalText: stringValue(suggestion.originalText),
+    replacement,
+    status: suggestion.status === "applied" ? "applied" : "open",
+  };
+}
+
+function suggestionFromBody(body: string): ReviewSuggestion | undefined {
+  const suggestion = parseSuggestionBlock(body);
+
+  return suggestion
+    ? {
+      replacement: suggestion.replacement,
+      status: "open",
+    }
+    : undefined;
+}
+
+function hashPayload(hash: string): string {
+  return hash.startsWith("#") ? hash.slice(1) : hash;
+}
+
+function rawCommentBodyFromHashPayload(payload: string): string | undefined {
+  if (payload.startsWith(COMMENT_HASH_PREFIX)) {
+    return safeDecodeURIComponent(payload.slice(COMMENT_HASH_PREFIX.length)).trim()
+      || undefined;
+  }
+
+  if (isRawCommentBody(payload)) {
+    return safeDecodeURIComponent(payload).trim() || undefined;
+  }
+
+  return undefined;
+}
+
+function isRawCommentBody(payload: string): boolean {
+  return payload.startsWith("https://") || payload.startsWith("http://");
+}
+
+function parseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value != null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const number = numberValue(value);
+
+  return number != null && number >= 1 ? number : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  const number = numberValue(value);
+
+  return number != null && number >= 0 ? number : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isSafeInteger(value)) {
+    return value;
+  }
+
+  if (typeof value !== "string" || !/^\d+$/u.test(value)) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function parseAnnotationSide(value: unknown): AnnotationSide | undefined {
+  return value === "additions" || value === "deletions" ? value : undefined;
+}
+
+function reviewKindValue(value: unknown): ReviewKind | undefined {
+  return value === "comment" || value === "suggestion" ? value : undefined;
+}
+
+function stableHash(value: string): string {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+
+  return hash.toString(36);
 }
 
 function threadMetadata(
