@@ -132,8 +132,8 @@ async function handleRequest(
     return true;
   }
 
-  if (url.pathname === "/api/vendor/mermaid.esm.min.mjs" && req.method === "GET") {
-    await sendMermaid(res);
+  if (url.pathname.startsWith("/api/vendor/") && req.method === "GET") {
+    await sendVendor(url.pathname.slice("/api/vendor/".length), res);
     return true;
   }
 
@@ -191,15 +191,25 @@ async function sendAsset(pathname: string, res: ServerResponse): Promise<void> {
   }
 }
 
-async function sendMermaid(res: ServerResponse): Promise<void> {
-  const filePath = require.resolve("mermaid/dist/mermaid.esm.min.mjs");
-  const body = await readFile(filePath, "utf8");
+async function sendVendor(relPath: string, res: ServerResponse): Promise<void> {
+  const mermaidDistDir = path.dirname(require.resolve("mermaid/dist/mermaid.esm.min.mjs"));
+  const filePath = path.resolve(mermaidDistDir, relPath);
 
-  res.writeHead(200, {
-    "access-control-allow-origin": "*",
-    "content-type": "text/javascript; charset=utf-8",
-  });
-  res.end(body);
+  if (!filePath.startsWith(mermaidDistDir + path.sep)) {
+    sendJson(res, 403, { error: "forbidden" });
+    return;
+  }
+
+  try {
+    const body = await readFile(filePath, "utf8");
+    res.writeHead(200, {
+      "access-control-allow-origin": "*",
+      "content-type": "text/javascript; charset=utf-8",
+    });
+    res.end(body);
+  } catch {
+    sendJson(res, 404, { error: "not found" });
+  }
 }
 
 function hasValidToken(req: IncomingMessage): boolean {
