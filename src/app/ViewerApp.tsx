@@ -105,10 +105,11 @@ export function ViewerApp() {
     viewerClassName,
     viewMode,
   } = useViewerController();
+  const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
 
   return (
     <main
-      className={viewerClassName}
+      className={isSidebarMinimized ? `${viewerClassName} sidebar-minimized` : viewerClassName}
       onDragLeave={(event) => {
         if (event.currentTarget === event.target) {
           dispatch({ isDragging: false, type: "dragging-changed" });
@@ -126,11 +127,22 @@ export function ViewerApp() {
     >
       <aside className="sidebar">
         <div className="sidebar-header">
-          <div>
+          <div className="sidebar-header-main">
             <div className="product-name">vo</div>
             <div className="file-count">{files.length} files</div>
           </div>
-          <div className="status">{status}</div>
+          <div className="sidebar-header-actions">
+            <div className="status">{status}</div>
+            <button
+              aria-label={isSidebarMinimized ? "サイドバーを展開" : "サイドバーを折りたたむ"}
+              className="sidebar-toggle"
+              onClick={() => setIsSidebarMinimized((v) => !v)}
+              title={isSidebarMinimized ? "Expand sidebar" : "Collapse sidebar"}
+              type="button"
+            >
+              <ChevronIcon direction={isSidebarMinimized ? "right" : "left"} />
+            </button>
+          </div>
         </div>
 
         <div className="search-panel">
@@ -289,7 +301,7 @@ function useViewerController(): ViewerController {
     const onFiles = (event: Event) => {
       const payload = JSON.parse((event as MessageEvent).data) as FilesPayload;
 
-      dispatch({ files: payload.files, status: "updated", type: "files-loaded" });
+      dispatch({ files: payload.files, type: "files-loaded" });
     };
     const onError = () => {
       dispatch({ status: "connection lost", type: "status-changed" });
@@ -320,6 +332,34 @@ function useViewerController(): ViewerController {
       window.removeEventListener("popstate", syncRequestedPath);
     };
   }, []);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !event.data
+        || typeof event.data !== "object"
+        || event.data.type !== "vo:navigate"
+        || typeof event.data.relativePath !== "string"
+      ) {
+        return;
+      }
+
+      const normalizedTarget = normalizeSharePath(event.data.relativePath as string);
+      const targetFile = files.find(
+        (file) => normalizeSharePath(file.relativePath) === normalizedTarget,
+      );
+
+      if (targetFile) {
+        dispatch({ selectedId: targetFile.id, type: "selected-file-chosen" });
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [files]);
 
   useEffect(() => {
     const nextSelectedId = resolveSelectedId(files, requestedPath, selectedId);
@@ -819,6 +859,16 @@ function CopyIcon() {
     <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
       <path d="M6.25 2.25h6.5v8.5h-6.5z" />
       <path d="M3.25 5.25h6.5v8.5h-6.5z" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ direction }: { direction: "left" | "right" }) {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
+      {direction === "left"
+        ? <path d="M10 3L6 8l4 5" />
+        : <path d="M6 3l4 5-4 5" />}
     </svg>
   );
 }

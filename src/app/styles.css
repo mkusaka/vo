@@ -102,9 +102,47 @@ textarea {
 .sidebar-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 16px;
   padding: 18px 18px 14px;
   border-bottom: 1px solid var(--vo-border);
+}
+
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.sidebar-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--vo-muted);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover {
+  color: var(--vo-text);
+  border-color: var(--vo-border-strong);
+  background: var(--vo-panel-muted);
+}
+
+.sidebar-toggle svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
 }
 
 .product-name {
@@ -821,6 +859,29 @@ dt {
   border: 1px dashed var(--vo-border-strong);
   border-radius: 8px;
   background: var(--vo-panel);
+}
+
+.viewer.sidebar-minimized {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.viewer.sidebar-minimized .sidebar-header {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 14px 0;
+}
+
+.viewer.sidebar-minimized .sidebar-header-main,
+.viewer.sidebar-minimized .status,
+.viewer.sidebar-minimized .search-panel,
+.viewer.sidebar-minimized .tree-panel {
+  display: none;
+}
+
+.viewer.sidebar-minimized .sidebar-header-actions {
+  flex-direction: column;
 }
 
 @media (max-width: 780px) {
