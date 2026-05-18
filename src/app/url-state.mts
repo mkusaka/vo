@@ -15,6 +15,7 @@ export function selectedPathFromSearch(search: string): string | undefined {
 export function withSelectedFilePath(
   href: string,
   filePath: string | undefined,
+  hash?: string,
 ): string {
   const url = new URL(href, "http://vo.local");
 
@@ -23,6 +24,8 @@ export function withSelectedFilePath(
   } else {
     url.searchParams.delete(FILE_QUERY_PARAM);
   }
+
+  url.hash = hash ?? "";
 
   return `${url.pathname}${url.search}${url.hash}`;
 }

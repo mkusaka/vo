@@ -283,6 +283,7 @@ function useViewerController(): ViewerController {
     themeMode,
   } = state;
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const pendingHashRef = useRef<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -335,10 +336,21 @@ function useViewerController(): ViewerController {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== "object") {
+        return;
+      }
+
+      if (event.data.type === "vo:anchor" && typeof event.data.hash === "string") {
+        window.history.pushState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}${event.data.hash as string}`,
+        );
+        return;
+      }
+
       if (
-        !event.data
-        || typeof event.data !== "object"
-        || event.data.type !== "vo:navigate"
+        event.data.type !== "vo:navigate"
         || typeof event.data.relativePath !== "string"
       ) {
         return;
@@ -350,6 +362,7 @@ function useViewerController(): ViewerController {
       );
 
       if (targetFile) {
+        pendingHashRef.current = typeof event.data.hash === "string" ? (event.data.hash as string) : "";
         dispatch({ selectedId: targetFile.id, type: "selected-file-chosen" });
       }
     };
@@ -407,7 +420,9 @@ function useViewerController(): ViewerController {
       return;
     }
 
-    const nextUrl = withSelectedFilePath(window.location.href, selected.relativePath);
+    const hash = pendingHashRef.current;
+    pendingHashRef.current = "";
+    const nextUrl = withSelectedFilePath(window.location.href, selected.relativePath, hash);
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
     if (nextUrl !== currentUrl) {

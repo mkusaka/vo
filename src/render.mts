@@ -50,34 +50,7 @@ export function renderDocument(file: SourceFile, origin: string): string {
   <article class="${file.kind === "html" ? "html-document" : "markdown-body"}">
 ${body}
   </article>
-  <script>
-    document.addEventListener('click', function(event) {
-      var link = event.target.closest('a');
-      if (!link) return;
-      var nav = link.dataset.voNavigate;
-      if (nav) {
-        event.preventDefault();
-        window.parent.postMessage({ type: 'vo:navigate', relativePath: nav }, '*');
-        return;
-      }
-      var href = link.getAttribute('href');
-      if (!href || !href.startsWith('#')) return;
-      var id = href.slice(1);
-      var target = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
-      if (target) {
-        event.preventDefault();
-        target.scrollIntoView({ behavior: 'smooth' });
-      }
-    });
-  </script>
-  <script type="module">
-    const diagrams = document.querySelectorAll(".mermaid");
-    if (diagrams.length > 0) {
-      const mermaid = await import("/api/vendor/mermaid.esm.min.mjs");
-      mermaid.default.initialize({ startOnLoad: false, securityLevel: "strict" });
-      await mermaid.default.run({ nodes: diagrams });
-    }
-  </script>
+  <script type="module" src="/src/iframe-scripts/document.ts"></script>
 </body>
 </html>`;
 }
@@ -109,15 +82,18 @@ function rewriteRelativeFileLinks(html: string, relativePath: string): string {
       return match;
     }
 
-    const pathPart = href.split("#")[0].split("?")[0];
+    const [hrefPath, ...hashSegments] = href.split("#");
+    const pathPart = hrefPath.split("?")[0];
+    const hash = hashSegments.length > 0 ? "#" + hashSegments.join("#") : "";
 
     if (!/\.(?:md|markdown|mdx|html?)$/iu.test(pathPart)) {
       return match;
     }
 
     const targetPath = path.posix.join(fileDir, pathPart);
+    const hashAttr = hash ? ` data-vo-hash="${escapeAttribute(hash)}"` : "";
 
-    return `data-vo-navigate="${escapeAttribute(targetPath)}" href="#"`;
+    return `data-vo-navigate="${escapeAttribute(targetPath)}"${hashAttr} href="#"`;
   });
 }
 
