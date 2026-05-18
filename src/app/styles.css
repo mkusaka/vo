@@ -560,6 +560,11 @@ dt {
   background: var(--vo-panel);
 }
 
+.annotation-focused {
+  border-color: color-mix(in lab, var(--vo-accent) 55%, var(--vo-border));
+  box-shadow: 0 0 0 2px rgb(0 159 255 / 12%);
+}
+
 .annotation-suggestion {
   border-left-color: var(--vo-green);
 }
@@ -646,21 +651,6 @@ dt {
 .annotation-mode-tabs button.active {
   color: var(--vo-text);
   background: var(--vo-panel);
-}
-
-.annotation-selection {
-  max-height: 128px;
-  margin: 0;
-  overflow: auto;
-  padding: 8px;
-  color: var(--vo-text);
-  border: 1px solid var(--vo-border);
-  border-radius: 6px;
-  background: var(--vo-panel-muted);
-  font-family: var(--diffs-font-family);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
 }
 
 .annotation-suggestion-block {

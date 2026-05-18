@@ -45,6 +45,7 @@ type DiffsPanelProps = {
 type DiffsState = {
   draftBody: string;
   draftTarget?: CommentTarget;
+  focusedThreadId?: string;
   pendingSuggestionId?: string;
   replyDrafts: Record<string, string>;
   selectedLines: SelectedLineRange | null;
@@ -60,6 +61,7 @@ type DiffsAction =
   | { type: "selected-lines-changed"; selectedLines: SelectedLineRange | null }
   | { type: "source-changed"; threads: ReviewThread[] }
   | { type: "thread-added"; thread: ReviewThread }
+  | { type: "thread-focused"; id: string }
   | {
     type: "thread-updated";
     id: string;
@@ -82,6 +84,7 @@ export default function DiffsPanel({
   const {
     draftBody,
     draftTarget,
+    focusedThreadId,
     pendingSuggestionId,
     replyDrafts,
     selectedLines,
@@ -167,6 +170,18 @@ export default function DiffsPanel({
   }
 
   const activeSource = source;
+  const focusedThread = focusedThreadForCurrentView(
+    threads,
+    activeSource.relativePath,
+    viewMode,
+    focusedThreadId,
+  );
+  const focusedLines = draftTarget
+    ? selectedRangeFromTarget(draftTarget)
+    : focusedThread
+      ? selectedRangeFromTarget(targetFromThread(focusedThread))
+      : null;
+  const activeSelectedLines = selectedLines ?? focusedLines;
   const openFileDraft = (range: SelectedLineRange) => {
     openDraftTarget(targetFromFileRange(range));
   };
@@ -392,10 +407,14 @@ export default function DiffsPanel({
       dispatch({ body: value, id, type: "reply-draft-changed" });
     },
     onResolve: setThreadResolved,
+    onThreadFocus(id) {
+      dispatch({ id, type: "thread-focused" });
+    },
     onSuggestionApply: applyReviewSuggestion,
     onSuggestionChange: replaceSuggestion,
     onSuggestionRevert: revertReviewSuggestion,
     onSubmit: submitDraft,
+    focusedThreadId: focusedThread?.id,
     replyDrafts,
   });
 
@@ -424,7 +443,7 @@ export default function DiffsPanel({
           themeType: themeMode,
         }}
         renderAnnotation={renderCommentAnnotation}
-        selectedLines={selectedLines}
+        selectedLines={activeSelectedLines}
       />
     );
   }
@@ -447,7 +466,7 @@ export default function DiffsPanel({
         themeType: themeMode,
       }}
       renderAnnotation={renderCommentAnnotation}
-      selectedLines={selectedLines}
+      selectedLines={activeSelectedLines}
     />
   );
 
@@ -515,6 +534,7 @@ export default function DiffsPanel({
 function createInitialDiffsState(): DiffsState {
   return {
     draftBody: "",
+    focusedThreadId: undefined,
     pendingSuggestionId: undefined,
     replyDrafts: {},
     selectedLines: null,
@@ -562,15 +582,25 @@ function diffsReducer(state: DiffsState, action: DiffsAction): DiffsState {
         ...state,
         draftBody: "",
         draftTarget: undefined,
+        focusedThreadId: action.thread.id,
         selectedLines: null,
         threads: [...state.threads, action.thread],
       };
-    case "thread-updated":
+    case "thread-focused":
       return {
         ...state,
-        threads: state.threads.map((thread) => (
-          thread.id === action.id ? action.update(thread) : thread
-        )),
+        focusedThreadId: action.id,
+      };
+    case "thread-updated":
+      const threads = state.threads.map((thread) => (
+        thread.id === action.id ? action.update(thread) : thread
+      ));
+
+      return {
+        ...state,
+        focusedThreadId: focusableThreadById(threads, state.focusedThreadId)?.id
+          ?? firstFocusableThread(threads)?.id,
+        threads,
       };
     case "view-mode-changed":
       return {
@@ -584,6 +614,7 @@ function diffsReducer(state: DiffsState, action: DiffsAction): DiffsState {
 
 type RenderAnnotationActions = {
   draftBody: string;
+  focusedThreadId?: string;
   pendingSuggestionId?: string;
   onCancel(): void;
   onDraftBodyChange(value: string): void;
@@ -593,6 +624,7 @@ type RenderAnnotationActions = {
   onReplyBodyChange(id: string, value: string): void;
   onResolve(id: string, resolved: boolean): void;
   onSubmit(): void;
+  onThreadFocus(id: string): void;
   onSuggestionApply(threadId: string, replyId?: string): void;
   onSuggestionChange(threadId: string, replyId: string | undefined, replacement: string): void;
   onSuggestionRevert(threadId: string, replyId?: string): void;
@@ -610,9 +642,14 @@ function renderAnnotation(
     const commentBody = bodyWithoutSuggestionBlock(thread.body);
     const replyDraft = actions.replyDrafts[thread.id] ?? "";
     const replyHasSuggestion = parseSuggestionBlock(replyDraft) != null;
+    const isFocused = actions.focusedThreadId === thread.id;
 
     return (
-      <div className={`annotation-card annotation-${thread.kind}`}>
+      <div
+        className={`annotation-card annotation-${thread.kind}${isFocused ? " annotation-focused" : ""}`}
+        onFocusCapture={() => actions.onThreadFocus(thread.id)}
+        onMouseEnter={() => actions.onThreadFocus(thread.id)}
+      >
         <div className="annotation-thread-header">
           <div className="annotation-avatar">Y</div>
           <div>
@@ -623,7 +660,6 @@ function renderAnnotation(
         </div>
 
         {commentBody ? <p>{commentBody}</p> : null}
-        <SelectedTextPreview metadata={annotation.metadata} />
         <SuggestionBlock
           canApply={canApplySuggestion(thread)}
           isPending={actions.pendingSuggestionId === suggestionActionId(thread.id)}
@@ -711,7 +747,6 @@ function renderAnnotation(
         <strong>New review</strong>
         <span>{target}</span>
       </div>
-      <SelectedTextPreview metadata={annotation.metadata} />
       <textarea
         aria-label={`Comment for ${target}`}
         onChange={(event) => actions.onDraftBodyChange(event.currentTarget.value)}
@@ -739,22 +774,6 @@ function renderAnnotation(
         </button>
       </div>
     </div>
-  );
-}
-
-function SelectedTextPreview({
-  metadata,
-}: {
-  metadata: CommentAnnotationMetadata;
-}) {
-  if (!metadata.selectedText) {
-    return null;
-  }
-
-  return (
-    <pre className="annotation-selection">
-      {metadata.selectedText}
-    </pre>
   );
 }
 
@@ -892,6 +911,41 @@ function selectedRangeFromTarget(target: CommentTarget): SelectedLineRange {
     side: target.side,
     start: target.lineNumber,
   };
+}
+
+function focusedThreadForCurrentView(
+  threads: readonly ReviewThread[],
+  path: string,
+  viewMode: DiffsPanelProps["viewMode"],
+  focusedThreadId: string | undefined,
+): ReviewThread | undefined {
+  const visibleThreads = threads.filter((thread) => (
+    thread.path === path
+    && !thread.resolved
+    && (
+      viewMode === "diff"
+        ? thread.side != null
+        : thread.side == null
+    )
+  ));
+
+  return focusableThreadById(visibleThreads, focusedThreadId)
+    ?? visibleThreads[0];
+}
+
+function firstFocusableThread(
+  threads: readonly ReviewThread[],
+): ReviewThread | undefined {
+  return threads.find((thread) => !thread.resolved);
+}
+
+function focusableThreadById(
+  threads: readonly ReviewThread[],
+  id: string | undefined,
+): ReviewThread | undefined {
+  return id == null
+    ? undefined
+    : threads.find((thread) => thread.id === id && !thread.resolved);
 }
 
 function isMultiLineRange(range: SelectedLineRange): boolean {
