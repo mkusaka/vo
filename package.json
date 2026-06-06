@@ -21,7 +21,7 @@
     "viewer"
   ],
   "license": "MIT",
-  "packageManager": "pnpm@10.26.2",
+  "packageManager": "pnpm@11.5.2",
   "engines": {
     "node": ">=22.18.0"
   },
